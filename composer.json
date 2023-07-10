@@ -1,0 +1,31 @@
+{
+    "name": "tekkenking/documan",
+    "description": "An image manager for laravel",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "intervention/image": "2.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tekkenking\\Documan\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Temitayo",
+            "email": "bucketcodes@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Tekkenking\\Documan\\DocumanServiceProvider"
+            ],
+            "aliases": {
+                "Documan": "DocumanFacade"
+            }
+        }
+    }
+}
