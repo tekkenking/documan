@@ -293,14 +293,15 @@ class Documan
      * @param $size
      * @return mixed|string|null
      */
-    public function __get($size)
+    public function __get($size): mixed
     {
         if($size === 'plain' || $size === 'ordinary' || Str::startsWith($this->showFile, 'http')) {
             return $this->showFile;
         }
 
         if(!isset($this->defaultSizes[$size])) {
-            dd('Unknown file size '. $size);
+            //dd('Unknown file size '. $size);
+            return '';
         }
 
         return $this->getDocBySize($size, [])->first();
