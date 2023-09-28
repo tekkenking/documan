@@ -45,17 +45,33 @@ trait WriteDocuman
      * @param string $inputName
      * @return array
      */
-    public function upload(Request $request, string $inputName): array
+    public function upload(Request $request, string $inputName): DocumanCollections|array|bool
     {
         $request1 = $request;
         $inputName1 = $inputName;
 
+
         if($request1->hasFile($inputName1)) {
             $file = $request1->file($inputName1);
-            return $this->processUpload($file);
+            return $this->upload_without_request($file);
+        } else {
+            return false;
+        }
+    }
+
+    public function upload_without_request($file): DocumanCollections|array
+    {
+        $responseArr = $this->processUpload($file);
+        if($this->config['defaultReturn'] === 'array') {
+            return $responseArr;
         }
 
-        return [];
+        return $this->returnAsCollection($responseArr, (is_array($file)));
+    }
+
+    private function startProcessing()
+    {
+
     }
 
     /**
@@ -129,9 +145,18 @@ trait WriteDocuman
 
 
         $this->linkPath = '';
+        $this->localPath = '';
+        $fileSysDisk = $this->getFileSystemDisk($this->getDisk());
         if($this->returnResultWithLinks) {
-            //dd($this->getFileSystemDisk($this->getDisk())['url']);
-            $this->linkPath = $this->getFileSystemDisk($this->getDisk())['url'];
+            $this->linkPath = (isset($fileSysDisk['url']))
+                ? $fileSysDisk['url']
+                : null;
+        }
+
+        if($this->returnResultWithPaths) {
+            $this->localPath = (isset($fileSysDisk['root']))
+                ? $fileSysDisk['root']
+                : null;
         }
 
         if($extnGroup === 'image') {
@@ -154,7 +179,15 @@ trait WriteDocuman
             ->put($this->filename, file_get_contents($this->formFile));
 
         if($this->returnResultWithLinks) {
-            $fileNameInSizes['link'] = $this->linkPath.'/'.$this->filename;
+            $fileNameInSizes['link'] = ($this->linkPath)
+                ? $this->linkPath.'/'.$this->filename
+                : null;
+        }
+
+        if($this->returnResultWithPaths) {
+            $fileNameInSizes['path'] = ($this->localPath)
+                ? $this->localPath.'/'.$this->filename
+                : null;
         }
 
         return $fileNameInSizes;
@@ -181,7 +214,15 @@ trait WriteDocuman
             $fileNameInSizes['variations'][$key] = $this->filename;
 
             if($this->returnResultWithLinks) {
-                $fileNameInSizes['links'][$key] = $this->linkPath.'/'. $this->filename;
+                $fileNameInSizes['links'][$key] = ($this->linkPath)
+                    ? $this->linkPath.'/'.$this->filename
+                    : null;
+            }
+
+            if($this->returnResultWithPaths) {
+                $fileNameInSizes['paths'][$key] = ($this->localPath)
+                    ? $this->localPath.'/'.$this->filename
+                    : null;
             }
 
             $this->madeImageReset();
