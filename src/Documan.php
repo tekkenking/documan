@@ -70,19 +70,7 @@ documan('agent_photo')
 
 class Documan
 {
-    use ReadDocuman, WriteDocuman;
-
-    /**
-     * @var array
-     */
-    private array $defaultSizes = [];
-
-    /**
-     * @var array|string[]
-     */
-    private array $reservedSizes = [
-        'original'
-    ];
+    use ReadDocuman, WriteDocuman, ImageSizes;
 
     /**
      * @var array|string[]
@@ -122,12 +110,22 @@ class Documan
     /**
      * @var bool
      */
-    private bool $returnResultWithLinks = true;
+    private bool $returnResultWithLinks = false;
+
+    /**
+     * @var bool
+     */
+    private bool $returnResultWithPaths = false;
 
     /**
      * @var string
      */
     private string $linkPath = '';
+
+    /**
+     * @var string
+     */
+    private string $localPath = '';
 
     /**
      * @var string
@@ -159,14 +157,18 @@ class Documan
         if($this->config) {
             $this->allowedFileExtensions = $this->config['allowedFileExtensions'];
             $this->defaultSizes = $this->config['defaultImageSizes'];
-            //$this->defaultSizes['original'] = ['width' => '', 'height' => ''];
+
+            //return upload with links
+            $this->returnWithLinks($this->config['returnUploadWith']['links']);
+
+            //return upload with paths
+            $this->returnWithPaths($this->config['returnUploadWith']['paths']);
 
             //Set default disk from config
             $this->setDisk($this->config['disk'] ?? $disk);
 
             //Are there default sizes to be uploaded at all time
             if(!empty($this->config['uploadDefaulImageSizes'])) {
-
                 foreach($this->config['uploadDefaulImageSizes'] as $sizeKey){
                     $this->chosenSizes[$sizeKey] = $this->defaultSizes[$sizeKey];
                 }
@@ -224,35 +226,7 @@ class Documan
         return $this;
     }
 
-    /**
-     * @param array $newSize [optional] $newSize
-     * @return Documan
-     */
-    public function medium(array $newSize = []): Documan
-    {
-        $this->sizeSetter('medium', $newSize);
-        return $this;
-    }
 
-    /**
-     * @param array $newSize [optional] $newSize
-     * @return Documan
-     */
-    public function thumbnail(array $newSize = []): Documan
-    {
-        $this->sizeSetter('thumbnail', $newSize);
-        return $this;
-    }
-
-    /**
-     * @param array $newSize [optional] $newSize
-     * @return Documan
-     */
-    public function small(array $newSize = []): Documan
-    {
-        $this->sizeSetter('small', $newSize);
-        return $this;
-    }
 
     /**
      * @return Documan
@@ -261,26 +235,6 @@ class Documan
     {
         unset($this->chosenSizes['original']);
         return $this;
-    }
-
-    /**
-     * @param string $key
-     * @param array $newSize
-     * @return void
-     */
-    private function sizeSetter(string $key, array $newSize): void
-    {
-
-        if(!empty($newSize)) {
-            $this->defaultSizes[$key]['width'] = (isset($newSize['w']))
-                ? $newSize['w']
-                : $newSize['width'];
-
-            $this->defaultSizes[$key]['height'] = (isset($newSize['h']))
-                ? $newSize['h']
-                : $newSize['height'];
-        }
-
     }
 
     public function addExtension(array $extns): Documan
@@ -476,10 +430,30 @@ class Documan
     /**
      * @return $this
      */
-    public function returnWithLinks(): Documan
+    public function returnWithLinks(bool $bool = true): Documan
     {
-        $this->returnResultWithLinks = true;
+        $this->returnResultWithLinks = $bool;
         return $this;
+    }
+
+    public function returnWithPaths(bool $bool = true): Documan
+    {
+        $this->returnResultWithPaths = $bool;
+        return $this;
+    }
+
+    /**
+     * @param array $responseArr
+     * @return DocumanCollections
+     */
+    public function returnAsCollection($responseArr, $hasCollection = false): DocumanCollections|DocumanSingle
+    {
+
+        if($hasCollection) {
+            return new DocumanCollections($responseArr);
+        } else {
+            return new DocumanSingle($responseArr);
+        }
     }
 
 }

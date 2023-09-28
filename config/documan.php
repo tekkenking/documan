@@ -41,5 +41,13 @@ return [
         'document'          =>  ['doc', 'docx'],
         'powerpoint'        =>  ['ppt', 'pptx'],
         'pdf'               =>  ['pdf']
-    ]
+    ],
+
+    'returnUploadWith'  =>  [
+        'links' =>  true,
+        'paths' =>  false
+    ],
+
+    //Array | Collection
+    'defaultReturn' =>  'array'
 ];
