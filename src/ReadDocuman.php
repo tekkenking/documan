@@ -122,6 +122,10 @@ trait ReadDocuman
      */
     public function localPath($size): string
     {
+        if(Str::startsWith($this->showFile, 'http')) {
+            return $this->showFile;
+        }
+
         $fileName = $size.'_'.$this->showFile;
         $fileSystemDisk = $this->getFileSystemDisk($this->getDisk());
         $localFile = $fileSystemDisk['root'].'/'.$fileName;
@@ -131,5 +135,16 @@ trait ReadDocuman
         }
 
         return $localFile;
+    }
+
+
+    public function doc_collect()
+    {
+        return documan_collections();
+    }
+
+    public function dc()
+    {
+        return $this->doc_collect();
     }
 }
