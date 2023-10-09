@@ -17,11 +17,11 @@ trait ReadDocuman
     public function __call($method, $args)
     {
         $show = false;
-        if(Str::startsWith($method, 'show')) {
+        /*if(Str::startsWith($method, 'show')) {
             //Let's check if it's an allowed method call
             $show  = true;
             $method = strtolower(str_replace('show', '', $method));
-        }
+        }*/
 
         if(isset($this->defaultSizes[$method])) {
             if(!$show && !$this->showFile) {
@@ -116,6 +116,21 @@ trait ReadDocuman
         return collect($this->arrFilesToShow);
     }
 
+    public function getExtension()
+    {
+
+    }
+
+    public function getType()
+    {
+        //return mime_content_type()
+    }
+
+    public function mimeType()
+    {
+
+    }
+
     /**
      * @param $size
      * @return string
@@ -140,11 +155,11 @@ trait ReadDocuman
 
     public function doc_collect()
     {
-        return documan_collections();
+        //return documan_collections();
     }
 
     public function dc()
     {
-        return $this->doc_collect();
+        //return $this->doc_collect();
     }
 }
