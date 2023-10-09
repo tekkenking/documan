@@ -69,11 +69,6 @@ trait WriteDocuman
         return $this->returnAsCollection($responseArr, (is_array($file)));
     }
 
-    private function startProcessing()
-    {
-
-    }
-
     /**
      * @param string|array $fileName
      * @param string $source_disk
@@ -159,20 +154,21 @@ trait WriteDocuman
                 : null;
         }
 
+        $this->formFile = $file;
         if($extnGroup === 'image') {
-            $this->formFile = $file;
-            return $this->_processImage($fileName, $extension);
+            return $this->_processImage($extnGroup, $fileName, $extension);
         }
 
-        return $this->_processOtherDocs();
+        return $this->_processOtherDocs($extnGroup);
 
     }
 
     /**
      * @return array
      */
-    private function _processOtherDocs(): array
+    private function _processOtherDocs($extnGroup): array
     {
+        $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
         Storage::disk($this->getDisk())
@@ -198,8 +194,9 @@ trait WriteDocuman
      * @param $extension
      * @return array
      */
-    private function _processImage($fileName, $extension): array
+    private function _processImage($extnGroup, $fileName, $extension): array
     {
+        $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
         $this->makeImage();
