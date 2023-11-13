@@ -24,7 +24,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Tekkenking\\Documan\\DocumanServiceProvider"
+              "Tekkenking\\Documan\\DocumanServiceProvider"
             ],
             "aliases": {
                 "Documan": "DocumanFacade"
