@@ -10,6 +10,11 @@ trait ImageSizes
      */
     private array $defaultSizes = [];
 
+    public function sizesInArr(array $sizes=[]): Documan
+    {
+        return $this->sizes($sizes);
+    }
+
     public function sizes(array $sizes = []): Documan
     {
         if(!empty($sizes)) {
