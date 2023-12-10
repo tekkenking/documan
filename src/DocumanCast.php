@@ -97,22 +97,18 @@ class DocumanCast implements CastsAttributes
 
     public function set($model, string $key, $value, array $attributes)
     {
-
         if($value instanceof Documan) {
             return $value->showFileName();
         }
 
-        if(request()->$value) {
+        if(!request()->$value){
+            return null;
+        }
+
+        if(request()->$value && request()->hasFile($value)) {
             $documan = $this->chooseDisk(new Documan());
-
-            if($this->sizes){
-                foreach ($this->sizes as $size) {
-                    $documan->$size();
-                }
-            }
-
+            $documan->sizesInArr($this->sizes);
             $filesArr = $documan->upload(request(), $value);
-
             if(isset($filesArr['base_name'])) {
                 return $filesArr['base_name'];
             }
