@@ -109,7 +109,7 @@ class DocumanCast implements CastsAttributes
                 return $filesArr['base_name'];
             }
 
-            $this->throwException("Oops! Sorry, DocumanCast does not support multiple files upload! Use the direct method (documan())");
+            $this->throwException("Oops! Sorry, DocumanCast does not support multiple file uploads! Use the direct method (documan())");
 
             //return $filesArr;
         } else {
