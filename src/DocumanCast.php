@@ -101,10 +101,6 @@ class DocumanCast implements CastsAttributes
             return $value->showFileName();
         }
 
-        if(!request()->$value){
-            return null;
-        }
-
         if(request()->$value && request()->hasFile($value)) {
             $documan = $this->chooseDisk(new Documan());
             $documan->sizesInArr($this->sizes);
@@ -113,9 +109,34 @@ class DocumanCast implements CastsAttributes
                 return $filesArr['base_name'];
             }
 
-            return $filesArr;
+            $this->throwException("Oops! Sorry, DocumanCast does not support multiple files upload! Use the direct method (documan())");
+
+            //return $filesArr;
         } else {
-            return $value;
+
+            if($value) {
+
+                $exnt = $this->getValueExtension($value);
+
+                //If the returned extension is not equals to the $value, meaning it's a valid file.
+                if($exnt !== $value) {
+                    return $value;
+                }
+
+            }
+
+            return null;
         }
     }
+
+    private function getValueExtension($value): string
+    {
+        return str($value)->afterLast('.')->value;
+    }
+
+    private function throwException($msg)
+    {
+        throw new DocumanException($msg);
+    }
+
 }
