@@ -19,7 +19,7 @@ class DocumanServiceProvider extends ServiceProvider
     {
         $this->publishes([
             __DIR__.'/../config/documan.php' => config_path('documan.php'),
-        ]);
+        ],'documan-config');
     }
 
     /**
