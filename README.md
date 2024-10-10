@@ -1,4 +1,4 @@
-# Swissecho Laravel SMS Notification Channel
+# Documan Laravel file upload and display manager
 
 Documan is a Laravel file upload manager package that provides a more convenient way to upload, files and especially allows you to create multiple sizes of the same image and display them in the size of your choice, similar to cloudinary. This works perfectly with your file storage config.
 
