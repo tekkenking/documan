@@ -43,7 +43,6 @@ class DocumanCast implements CastsAttributes
 
         $this->setDisk($disk);
 
-
         if(isset($options[1])) {
             $this->setSizes(explode('|', $options[1]));
         }
