@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Facades\Image;
+use Intervention\Image\ImageManager;
 
 trait WriteDocuman
 {
@@ -194,7 +195,7 @@ trait WriteDocuman
      * @param $extension
      * @return array
      */
-    private function _processImage($extnGroup, $fileName, $extension): array
+    private function _processImageOld($extnGroup, $fileName, $extension): array
     {
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
@@ -207,7 +208,8 @@ trait WriteDocuman
 
             $this->filename = $key.'_'.$fileName.'.'.$extension;
 
-            Storage::disk($this->getDisk())->put($this->filename, $this->encodeMadeImage($extension));
+            Storage::disk($this->getDisk())
+                ->put($this->filename, $this->encodeMadeImage($extension));
             $fileNameInSizes['variations'][$key] = $this->filename;
 
             if($this->returnResultWithLinks) {
@@ -226,6 +228,45 @@ trait WriteDocuman
         }
 
         $this->destroyMadeImage();
+
+        return $fileNameInSizes;
+    }
+
+    private function _processImage($extnGroup, $fileName, $extension): array
+    {
+        $fileNameInSizes['fileType'] = $extnGroup;
+        $fileNameInSizes['base_name'] = $this->filename;
+
+        foreach ($this->chosenSizes as $key => $size) {
+            $this->filename = $key.'_'.$fileName.'.'.$extension;
+
+            if($key === 'original') {
+                Storage::disk($this->getDisk())
+                    ->put($this->filename, file_get_contents($this->formFile));
+            } else {
+                $imageProcessor = new ImageResizer($this->getDisk());
+                $imageProcessor->resizeAndPreserveExif(
+                    $this->formFile,
+                    $this->filename,
+                    $size['width'],
+                    $size['height']
+                );
+            }
+
+            $fileNameInSizes['variations'][$key] = $this->filename;
+
+            if($this->returnResultWithLinks) {
+                $fileNameInSizes['links'][$key] = ($this->linkPath)
+                    ? $this->linkPath.'/'.$this->filename
+                    : null;
+            }
+
+            if($this->returnResultWithPaths) {
+                $fileNameInSizes['paths'][$key] = ($this->localPath)
+                    ? $this->localPath.'/'.$this->filename
+                    : null;
+            }
+        }
 
         return $fileNameInSizes;
     }
