@@ -20,14 +20,14 @@ class UploadAdapter implements \Tekkenking\Documan\Interface\ExternalUpload
      *
      * @return array<array|string>
      */
-    public function forDocuman(string|array $assets): string|array
+    public function forDocuman(array $assets): string|array
     {
         $fileNameInSizes = [];
-        if (! is_array($assets)) {
-            $fileNameInSizes['base_name'] = $assets[0];
+        if (count($assets) === 1) {
+            $fileNameInSizes['base_name'] = $assets[0]->sha;
         } else {
-            foreach ($assets as $sha) {
-                $fileNameInSizes['base_name'][] = $sha;
+            foreach ($assets as $asset) {
+                $fileNameInSizes[]['base_name'] = $asset->sha;
             }
         }
 
