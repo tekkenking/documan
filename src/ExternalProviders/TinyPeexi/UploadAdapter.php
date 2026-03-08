@@ -2,6 +2,8 @@
 
 namespace Tekkenking\Documan\ExternalProviders\TinyPeexi;
 
+use Illuminate\Http\Request;
+
 class UploadAdapter implements \Tekkenking\Documan\Interface\ExternalUpload
 {
     public function externalUpload(Request $file, array $sizes = []): array|bool
