@@ -7,7 +7,7 @@ use Tekkenking\TinyPeexi\Facades\TinyPeexi;
 
 class UploadAdapter implements \Tekkenking\Documan\Interface\ExternalUpload
 {
-    public function externalUpload(UploadedFile $file, array $sizes = []): array|bool
+    public function externalUpload(UploadedFile|array $file, array $sizes = []): array|bool
     {
         // Your tinyPeexi logic here
         $shaAssetsArr = TinyPeexi::uploadMany($file);
