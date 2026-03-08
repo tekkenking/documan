@@ -6,14 +6,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Facades\Image;
-use Intervention\Image\ImageManager;
 
 trait WriteDocuman
 {
-
-    /**
-     * @var
-     */
     public $madeImage;
 
     public $formFile;
@@ -23,27 +18,22 @@ trait WriteDocuman
      */
     private function checkToKeepOriginalSize()
     {
-        //This would add or remove original size.
-        if($this->config['keepOriginalSize']) {
+        // This would add or remove original size.
+        if ($this->config['keepOriginalSize']) {
             $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
-        }elseif(isset($this->chosenSizes['original'])) {
+        } elseif (isset($this->chosenSizes['original'])) {
             unset($this->chosenSizes['original']);
         }
     }
 
-    /**
-     * @param $value
-     * @return static
-     */
     public function plain($value): static
     {
         $this->showFile = $value;
+
         return $this;
     }
 
     /**
-     * @param Request $request
-     * @param string $inputName
      * @return array
      */
     public function upload(Request $request, string $inputName): DocumanCollections|array|bool
@@ -51,9 +41,17 @@ trait WriteDocuman
         $request1 = $request;
         $inputName1 = $inputName;
 
-
-        if($request1->hasFile($inputName1)) {
+        if ($request1->hasFile($inputName1)) {
             $file = $request1->file($inputName1);
+
+            if ($this->config['externalAdapter']['enabled']) {
+                // Your external uploader logic here
+                $adapterClass = $this->config['externalAdapter']['adapter']['upload'];
+                $adapter = new $adapterClass;
+
+                return $adapter->externalUpload($file);
+            }
+
             return $this->upload_without_request($file);
         } else {
             return false;
@@ -63,24 +61,19 @@ trait WriteDocuman
     public function upload_without_request($file): DocumanCollections|array
     {
         $responseArr = $this->processUpload($file);
-        if($this->config['defaultReturn'] === 'array') {
+        if ($this->config['defaultReturn'] === 'array') {
             return $responseArr;
         }
 
         return $this->returnAsCollection($responseArr, (is_array($file)));
     }
 
-    /**
-     * @param string|array $fileName
-     * @param string $source_disk
-     * @return array
-     */
-    public function move(string | array $fileName, string $source_disk): array
+    public function move(string|array $fileName, string $source_disk): array
     {
-        //$sourcePath = config('filesystems.disks.'.$source_disk.'.root');
+        // $sourcePath = config('filesystems.disks.'.$source_disk.'.root');
         $sourcePath = $this->getFileSystemDisk($source_disk)['root'];
 
-        if(!is_array($fileName)) {
+        if (! is_array($fileName)) {
             $name = $this->buildFileToBeMoved($fileName, $sourcePath);
             $this->checkMovingFileIfExist($name);
         } else {
@@ -95,27 +88,19 @@ trait WriteDocuman
         return $this->processUpload($name);
     }
 
-    /**
-     * @param $file
-     * @return array
-     */
     protected function processUpload($file): array
     {
         $this->isDiskSet();
 
         $this->checkToKeepOriginalSize();
 
-        if(is_array($file)) {
+        if (is_array($file)) {
             return $this->processUploadMultiple($file);
         }
 
         return $this->processUploadSingle($file);
     }
 
-    /**
-     * @param $file
-     * @return array
-     */
     protected function processUploadSingle($file): array
     {
 
@@ -125,13 +110,13 @@ trait WriteDocuman
         $extnGroup = '';
         foreach ($this->allowedFileExtensions as $grp => $extn) {
             $check = in_array($extension, $extn);
-            if($check) {
+            if ($check) {
                 $extnGroup = $grp;
                 break;
             }
         }
 
-        if(!$check) {
+        if (! $check) {
             return [];
         }
 
@@ -139,24 +124,23 @@ trait WriteDocuman
         $this->prepareStoragePath();
         $this->filename = $fileName.'.'.$extension;
 
-
         $this->linkPath = '';
         $this->localPath = '';
         $fileSysDisk = $this->getFileSystemDisk($this->getDisk());
-        if($this->returnResultWithLinks) {
+        if ($this->returnResultWithLinks) {
             $this->linkPath = (isset($fileSysDisk['url']))
                 ? $fileSysDisk['url']
                 : null;
         }
 
-        if($this->returnResultWithPaths) {
+        if ($this->returnResultWithPaths) {
             $this->localPath = (isset($fileSysDisk['root']))
                 ? $fileSysDisk['root']
                 : null;
         }
 
         $this->formFile = $file;
-        if($extnGroup === 'image') {
+        if ($extnGroup === 'image') {
             return $this->_processImage($extnGroup, $fileName, $extension);
         }
 
@@ -164,9 +148,6 @@ trait WriteDocuman
 
     }
 
-    /**
-     * @return array
-     */
     private function _processOtherDocs($extnGroup): array
     {
         $fileNameInSizes['fileType'] = $extnGroup;
@@ -175,13 +156,13 @@ trait WriteDocuman
         Storage::disk($this->getDisk())
             ->put($this->filename, file_get_contents($this->formFile));
 
-        if($this->returnResultWithLinks) {
+        if ($this->returnResultWithLinks) {
             $fileNameInSizes['link'] = ($this->linkPath)
                 ? $this->linkPath.'/'.$this->filename
                 : null;
         }
 
-        if($this->returnResultWithPaths) {
+        if ($this->returnResultWithPaths) {
             $fileNameInSizes['path'] = ($this->localPath)
                 ? $this->localPath.'/'.$this->filename
                 : null;
@@ -190,11 +171,6 @@ trait WriteDocuman
         return $fileNameInSizes;
     }
 
-    /**
-     * @param $fileName
-     * @param $extension
-     * @return array
-     */
     private function _processImageOld($extnGroup, $fileName, $extension): array
     {
         $fileNameInSizes['fileType'] = $extnGroup;
@@ -212,13 +188,13 @@ trait WriteDocuman
                 ->put($this->filename, $this->encodeMadeImage($extension));
             $fileNameInSizes['variations'][$key] = $this->filename;
 
-            if($this->returnResultWithLinks) {
+            if ($this->returnResultWithLinks) {
                 $fileNameInSizes['links'][$key] = ($this->linkPath)
                     ? $this->linkPath.'/'.$this->filename
                     : null;
             }
 
-            if($this->returnResultWithPaths) {
+            if ($this->returnResultWithPaths) {
                 $fileNameInSizes['paths'][$key] = ($this->localPath)
                     ? $this->localPath.'/'.$this->filename
                     : null;
@@ -240,7 +216,7 @@ trait WriteDocuman
         foreach ($this->chosenSizes as $key => $size) {
             $this->filename = $key.'_'.$fileName.'.'.$extension;
 
-            if($key === 'original') {
+            if ($key === 'original') {
                 Storage::disk($this->getDisk())
                     ->put($this->filename, file_get_contents($this->formFile));
             } else {
@@ -255,13 +231,13 @@ trait WriteDocuman
 
             $fileNameInSizes['variations'][$key] = $this->filename;
 
-            if($this->returnResultWithLinks) {
+            if ($this->returnResultWithLinks) {
                 $fileNameInSizes['links'][$key] = ($this->linkPath)
                     ? $this->linkPath.'/'.$this->filename
                     : null;
             }
 
-            if($this->returnResultWithPaths) {
+            if ($this->returnResultWithPaths) {
                 $fileNameInSizes['paths'][$key] = ($this->localPath)
                     ? $this->localPath.'/'.$this->filename
                     : null;
@@ -271,10 +247,6 @@ trait WriteDocuman
         return $fileNameInSizes;
     }
 
-    /**
-     * @param $files
-     * @return array
-     */
     protected function processUploadMultiple($files): array
     {
         $fileNames = [];
@@ -285,27 +257,18 @@ trait WriteDocuman
         return $fileNames;
     }
 
-    /**
-     * @return mixed
-     */
     public function makeImage(): mixed
     {
         $this->madeImage = Image::make($this->formFile);
+
         return $this->madeImage;
     }
 
-    /**
-     * @return void
-     */
     public function makeBackup(): void
     {
         $this->madeImage->backup();
     }
 
-    /**
-     * @param $size
-     * @return void
-     */
     public function resizeMadeImage($size): void
     {
         $this->madeImage->resize($size['width'], $size['height'], function ($constraint) {
@@ -314,28 +277,18 @@ trait WriteDocuman
         });
     }
 
-    /**
-     * @return mixed
-     */
     public function encodeMadeImage($extension): mixed
     {
         return $this->madeImage->encode($extension);
     }
 
-    /**
-     * @return void
-     */
     public function madeImageReset(): void
     {
         $this->madeImage->reset();
     }
 
-    /**
-     * @return void
-     */
     public function destroyMadeImage(): void
     {
         $this->madeImage->destroy();
     }
-
 }
