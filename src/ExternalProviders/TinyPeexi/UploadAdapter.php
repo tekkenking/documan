@@ -3,6 +3,7 @@
 namespace Tekkenking\Documan\ExternalProviders\TinyPeexi;
 
 use Illuminate\Http\UploadedFile;
+use Tekkenking\TinyPeexi\Facades\TinyPeexi;
 
 class UploadAdapter implements \Tekkenking\Documan\Interface\ExternalUpload
 {
