@@ -44,12 +44,9 @@ trait WriteDocuman
         if ($request1->hasFile($inputName1)) {
             $file = $request1->file($inputName1);
 
-            if ($this->config['externalAdapter']['enabled']) {
-                // Your external uploader logic here
-                $adapterClass = $this->config['externalAdapter']['adapter']['upload'];
-                $adapter = new $adapterClass;
-
-                return $adapter->externalUpload($file);
+            $externalUploadResponse = $this->useExternalUploader($file);
+            if ($externalUploadResponse) {
+                return $externalUploadResponse;
             }
 
             return $this->upload_without_request($file);
@@ -58,8 +55,26 @@ trait WriteDocuman
         }
     }
 
+    private function useExternalUploader($file)
+    {
+        if ($this->config['externalAdapter']['enabled']) {
+            // Your external uploader logic here
+            $adapterClass = $this->config['externalAdapter']['adapter']['upload'];
+            $adapter = new $adapterClass;
+
+            return $adapter->externalUpload($file);
+        }
+
+        return false;
+    }
+
     public function upload_without_request($file): DocumanCollections|array
     {
+        $externalUploadResponse = $this->useExternalUploader($file);
+        if ($externalUploadResponse) {
+            return $externalUploadResponse;
+        }
+
         $responseArr = $this->processUpload($file);
         if ($this->config['defaultReturn'] === 'array') {
             return $responseArr;
