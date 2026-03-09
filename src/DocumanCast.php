@@ -9,14 +9,8 @@ use Illuminate\Support\Str;
 
 class DocumanCast implements CastsAttributes
 {
-    /**
-     * @var string
-     */
     public string $disk = '';
 
-    /**
-     * @var array
-     */
     public array $sizes = [];
 
     /**
@@ -24,33 +18,29 @@ class DocumanCast implements CastsAttributes
      */
     private $is_remote = false;
 
-    /**
-     * @param $option
-     */
     public function __construct(private $option)
     {
-        //How many options
+        // How many options
         $options = explode(':', $this->option);
 
         $disk = $options[0];
 
-        //Let's check if the setDisk has remote prefix
-        if(str_starts_with($disk, 'remote')) {
-            //This means it's a remote disk
+        // Let's check if the setDisk has remote prefix
+        if (str_starts_with($disk, 'remote')) {
+            // This means it's a remote disk
             $this->is_remote = true;
             $disk = str_replace('remote_', '', $disk);
         }
 
         $this->setDisk($disk);
 
-        if(isset($options[1])) {
+        if (isset($options[1])) {
             $this->setSizes(explode('|', $options[1]));
         }
 
     }
 
     /**
-     * @param $disk
      * @return void
      */
     private function setDisk($disk)
@@ -59,7 +49,6 @@ class DocumanCast implements CastsAttributes
     }
 
     /**
-     * @param $sizes
      * @return void
      */
     private function setSizes($sizes)
@@ -69,12 +58,12 @@ class DocumanCast implements CastsAttributes
 
     public function get($model, string $key, $value, array $attributes)
     {
-        if(!$value){
+        if (! $value) {
             return $value;
         }
 
-        $documan = new Documan();
-        if(Str::startsWith($value, 'http')) {
+        $documan = new Documan;
+        if (Str::startsWith($value, 'http')) {
             return $documan->plain($value);
         }
 
@@ -85,7 +74,7 @@ class DocumanCast implements CastsAttributes
 
     private function chooseDisk($documan)
     {
-        if($this->is_remote) {
+        if ($this->is_remote) {
             $doc = $documan->remoteDisk($this->disk);
         } else {
             $doc = $documan->setDisk($this->disk);
@@ -96,31 +85,31 @@ class DocumanCast implements CastsAttributes
 
     public function set($model, string $key, $value, array $attributes)
     {
-        if($value instanceof Documan) {
+        if ($value instanceof Documan) {
             return $value->showFileName();
         }
 
-        if(request()->$value && request()->hasFile($value)) {
-            $documan = $this->chooseDisk(new Documan());
+        if (request()->$value && request()->hasFile($value)) {
+            $documan = $this->chooseDisk(new Documan);
             $documan->sizesInArr($this->sizes);
             $filesArr = $documan->upload(request(), $value);
-            if(isset($filesArr['base_name'])) {
+            if (isset($filesArr['base_name'])) {
                 return $filesArr['base_name'];
             }
 
-            $this->throwException("Oops! Sorry, DocumanCast does not support multiple file uploads! Use the direct method (documan())");
+            $this->throwException('Oops! Sorry, DocumanCast does not support multiple file uploads! Use the direct method (documan())');
 
-            //return $filesArr;
+            // return $filesArr;
         } else {
 
-            if($value) {
+            if ($value) {
 
-                $exnt = $this->getValueExtension($value);
+                // $exnt = $this->getValueExtension($value);
 
-                //If the returned extension is not equals to the $value, meaning it's a valid file.
-                if($exnt !== $value) {
-                    return $value;
-                }
+                // If the returned extension is not equals to the $value, meaning it's a valid file.
+                // if($exnt !== $value) {
+                return $value;
+                // }
 
             }
 
@@ -137,5 +126,4 @@ class DocumanCast implements CastsAttributes
     {
         throw new DocumanException($msg);
     }
-
 }
