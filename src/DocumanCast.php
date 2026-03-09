@@ -102,18 +102,18 @@ class DocumanCast implements CastsAttributes
             // return $filesArr;
         } else {
 
-            if ($value) {
+            // if ($value) {
 
-                // $exnt = $this->getValueExtension($value);
+            // $exnt = $this->getValueExtension($value);
 
-                // If the returned extension is not equals to the $value, meaning it's a valid file.
-                // if($exnt !== $value) {
-                return $value;
-                // }
+            // If the returned extension is not equals to the $value, meaning it's a valid file.
+            // if($exnt !== $value) {
+            // return $value;
+            // }
 
-            }
+            // }
 
-            return null;
+            return $value ?? null;
         }
     }
 
