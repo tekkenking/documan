@@ -6,7 +6,7 @@ namespace Tekkenking\Documan;
 
 abstract class DocumanBase
 {
-    protected array $filesArr;
+    protected array $filesArr = [];
 
     public object $files;
 
