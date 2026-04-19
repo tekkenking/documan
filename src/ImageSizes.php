@@ -25,7 +25,7 @@ trait ImageSizes
                     //This mean it's unassociated array
                     //Is this available amongst the default sizes
                     if(!isset($this->defaultSizes[$value])) {
-                        dd("{$value} is not a valid size");
+                        throw new DocumanException("{$value} is not a valid size");
                     }
                     $workingSizes[$value] = $this->defaultSizes[$value];
                 } else {
@@ -33,7 +33,7 @@ trait ImageSizes
 
                     //Let's make sure it's properly formed with width and height
                     if(!is_array($value)) {
-                        dd("{$size} value must be properly formed array with width or height or both");
+                        throw new DocumanException("{$size} value must be properly formed array with width or height or both");
                     } else {
                         if(isset($this->defaultSizes[$size])) {
                             //Meaning we want to overwrite config size at run time
@@ -47,7 +47,7 @@ trait ImageSizes
                         } else {
                             //We are adding customer size type at run time
                             if(!isset($value['width']) || !isset($value['height'])) {
-                                dd("{$size} value must be properly formed array with width and height");
+                                throw new DocumanException("{$size} value must be properly formed array with width and height");
                             }
 
                             $this->defaultSizes[$size]['width'] = $value['width'];

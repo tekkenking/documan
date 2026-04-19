@@ -5,13 +5,10 @@ namespace Tekkenking\Documan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Intervention\Image\Facades\Image;
 
 trait WriteDocuman
 {
-    public $madeImage;
-
-    public $formFile;
+    public mixed $formFile = null;
 
     /**
      * @return void
@@ -132,7 +129,7 @@ trait WriteDocuman
         }
 
         if (! $check) {
-            return [];
+            throw new DocumanException("File extension '{$extension}' is not allowed.");
         }
 
         $fileName = Str::random();
@@ -186,44 +183,7 @@ trait WriteDocuman
         return $fileNameInSizes;
     }
 
-    private function _processImageOld($extnGroup, $fileName, $extension): array
-    {
-        $fileNameInSizes['fileType'] = $extnGroup;
-        $fileNameInSizes['base_name'] = $this->filename;
-
-        $this->makeImage();
-        $this->makeBackup();
-
-        foreach ($this->chosenSizes as $key => $size) {
-            $this->resizeMadeImage($size);
-
-            $this->filename = $key.'_'.$fileName.'.'.$extension;
-
-            Storage::disk($this->getDisk())
-                ->put($this->filename, $this->encodeMadeImage($extension));
-            $fileNameInSizes['variations'][$key] = $this->filename;
-
-            if ($this->returnResultWithLinks) {
-                $fileNameInSizes['links'][$key] = ($this->linkPath)
-                    ? $this->linkPath.'/'.$this->filename
-                    : null;
-            }
-
-            if ($this->returnResultWithPaths) {
-                $fileNameInSizes['paths'][$key] = ($this->localPath)
-                    ? $this->localPath.'/'.$this->filename
-                    : null;
-            }
-
-            $this->madeImageReset();
-        }
-
-        $this->destroyMadeImage();
-
-        return $fileNameInSizes;
-    }
-
-    private function _processImage($extnGroup, $fileName, $extension): array
+    private function _processImage(string $extnGroup, string $fileName, string $extension): array
     {
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
@@ -262,7 +222,7 @@ trait WriteDocuman
         return $fileNameInSizes;
     }
 
-    protected function processUploadMultiple($files): array
+    protected function processUploadMultiple(array $files): array
     {
         $fileNames = [];
         foreach ($files as $file) {
@@ -271,39 +231,5 @@ trait WriteDocuman
 
         return $fileNames;
     }
-
-    public function makeImage(): mixed
-    {
-        $this->madeImage = Image::make($this->formFile);
-
-        return $this->madeImage;
-    }
-
-    public function makeBackup(): void
-    {
-        $this->madeImage->backup();
-    }
-
-    public function resizeMadeImage($size): void
-    {
-        $this->madeImage->resize($size['width'], $size['height'], function ($constraint) {
-            $constraint->aspectRatio();
-            $constraint->upsize();
-        });
-    }
-
-    public function encodeMadeImage($extension): mixed
-    {
-        return $this->madeImage->encode($extension);
-    }
-
-    public function madeImageReset(): void
-    {
-        $this->madeImage->reset();
-    }
-
-    public function destroyMadeImage(): void
-    {
-        $this->madeImage->destroy();
-    }
 }
+

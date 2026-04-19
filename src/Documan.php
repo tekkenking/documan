@@ -10,7 +10,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Intervention\Image\Facades\Image;
 
 /**
  * version 0.4.1
@@ -72,70 +71,31 @@ class Documan
 {
     use ReadDocuman, WriteDocuman, ImageSizes;
 
-    /**
-     * @var array|string[]
-     */
     protected array $allowedFileExtensions = [];
 
-    /**
-     * @var null
-     */
-    private mixed $disk = null;
+    private ?string $disk = null;
 
-    /**
-     * @var array
-     */
     private array $chosenSizes = [];
 
-    /**
-     * @var mixed|null
-     */
-    private mixed $showFile = null;
+    private ?string $showFile = null;
 
-    /**
-     * @var bool
-     */
     private bool $onlyFileName = false;
 
-    /**
-     * @var array
-     */
     private array $arrFilesToShow = [];
 
-    /**
-     * @var null
-     */
-    private mixed $remoteHost = null;
+    private ?string $remoteHost = null;
 
-    /**
-     * @var bool
-     */
     private bool $returnResultWithLinks = false;
 
-    /**
-     * @var bool
-     */
     private bool $returnResultWithPaths = false;
 
-    /**
-     * @var string
-     */
     private string $linkPath = '';
 
-    /**
-     * @var string
-     */
     private string $localPath = '';
 
-    /**
-     * @var string
-     */
     public string $filename = '';
 
-    /**
-     * @var array
-     */
-    private array $config= [];
+    private array $config = [];
 
 
     /**
@@ -239,13 +199,13 @@ class Documan
         $root = $root_uri ?? $this->config['remote']['host_url'];
 
         if(!$root) {
-            dd('Remote host url is required in config file of documan');
+            throw new DocumanException('Remote host url is required in config file of documan');
         }
 
         if($disk) {
-            $diskAsSegment = $this->config['remote']['disk'];
-        } elseif($this->config['remote']['disk']) {
             $diskAsSegment = $disk;
+        } elseif($this->config['remote']['disk']) {
+            $diskAsSegment = $this->config['remote']['disk'];
         }else {
             $diskAsSegment = $this->getDisk();
         }
@@ -280,7 +240,7 @@ class Documan
      * @param string|null $disk
      * @return Documan
      */
-    public function setDisk(string $disk = null): Documan
+    public function setDisk(?string $disk = null): Documan
     {
         if($disk) {
             $this->disk = $disk;
@@ -292,7 +252,7 @@ class Documan
     /**
      * @return string
      */
-    public function getDisk(): mixed
+    public function getDisk(): ?string
     {
         return $this->disk;
     }
@@ -303,7 +263,7 @@ class Documan
     private function isDiskSet(): void
     {
         if(!$this->getDisk()) {
-            dd('Please set a filesystem disk (setDisk(DiskName) method to upload image');
+            throw new DocumanException('Please set a filesystem disk (setDisk(DiskName) method to upload image');
         }
     }
 
@@ -361,7 +321,7 @@ class Documan
     private function checkMovingFileIfExist($file): void
     {
         if(!file_exists($file)) {
-            dd('MOVE: '.$file.' does not exist');
+            throw new DocumanException('MOVE: '.$file.' does not exist');
         }
     }
 
