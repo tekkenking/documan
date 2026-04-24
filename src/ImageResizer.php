@@ -9,16 +9,11 @@ use Illuminate\Support\Facades\Storage;
 
 class ImageResizer
 {
-    protected string $disk = 'public';
-    protected bool $useImagick = false;
+    protected bool $useImagick;
 
-    public function __construct(string $disk = '')
+    public function __construct(protected string $disk = 'public')
     {
         $this->useImagick = extension_loaded('imagick');
-
-        if ($disk) {
-            $this->setDisk($disk);
-        }
     }
 
     public function setDisk(string $disk): self
@@ -157,7 +152,11 @@ class ImageResizer
         }
 
         ob_start();
-        imagejpeg($dstImage, null, 90);
+        match ($type) {
+            IMAGETYPE_PNG => imagepng($dstImage, null, 9),
+            IMAGETYPE_GIF => imagegif($dstImage),
+            default       => imagejpeg($dstImage, null, 90),
+        };
         $imageContent = ob_get_clean();
 
         imagedestroy($srcImage);

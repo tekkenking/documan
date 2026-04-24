@@ -34,7 +34,7 @@ trait ReadDocuman
             }
 
         } else {
-            dd($method.' method call is not allowed in documan');
+            throw new DocumanException($method.' method call is not allowed in documan');
         }
 
     }
@@ -107,14 +107,45 @@ trait ReadDocuman
         return collect($this->arrFilesToShow);
     }
 
-    public function getExtension() {}
-
-    public function getType()
+    public function getExtension(): string
     {
-        // return mime_content_type()
+        if (!$this->showFile) {
+            return '';
+        }
+        return pathinfo($this->showFile, PATHINFO_EXTENSION);
     }
 
-    public function mimeType() {}
+    public function getType(): string
+    {
+        $ext = strtolower($this->getExtension());
+        $map = [
+            'jpg' => 'image', 'jpeg' => 'image', 'png' => 'image', 'gif' => 'image',
+            'pdf' => 'pdf',
+            'doc' => 'document', 'docx' => 'document',
+            'xls' => 'excel', 'xlsx' => 'excel', 'csv' => 'excel',
+            'ppt' => 'powerpoint', 'pptx' => 'powerpoint',
+        ];
+        return $map[$ext] ?? 'other';
+    }
+
+    public function mimeType(): string
+    {
+        $ext = strtolower($this->getExtension());
+        $map = [
+            'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls' => 'application/vnd.ms-excel',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'csv' => 'text/csv',
+            'ppt' => 'application/vnd.ms-powerpoint',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ];
+        return $map[$ext] ?? 'application/octet-stream';
+    }
 
     public function localPath($size): string
     {
@@ -133,13 +164,5 @@ trait ReadDocuman
         return $localFile;
     }
 
-    public function doc_collect()
-    {
-        // return documan_collections();
-    }
 
-    public function dc()
-    {
-        // return $this->doc_collect();
-    }
 }

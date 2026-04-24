@@ -7,18 +7,16 @@ namespace Tekkenking\Documan;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Support\Str;
 
+/** @implements CastsAttributes<Documan, mixed> */
 class DocumanCast implements CastsAttributes
 {
     public string $disk = '';
 
     public array $sizes = [];
 
-    /**
-     * @var bool
-     */
-    private $is_remote = false;
+    private bool $is_remote = false;
 
-    public function __construct(private $option)
+    public function __construct(private readonly string $option)
     {
         // How many options
         $options = explode(':', $this->option);
