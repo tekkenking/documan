@@ -141,6 +141,29 @@ class Documan
 
 
     /**
+     * Delete a file and all its size variants from the configured disk.
+     *
+     * @param string|array $baseName The base_name returned by upload()
+     * @return bool
+     */
+    public function delete(string|array $baseName): bool
+    {
+        $this->isDiskSet();
+        $disk = Storage::disk($this->getDisk());
+        $baseNames = is_array($baseName) ? $baseName : [$baseName];
+
+        foreach ($baseNames as $name) {
+            $disk->delete($name);
+            $disk->delete('original_' . $name);
+            foreach (array_keys($this->defaultSizes) as $size) {
+                $disk->delete($size . '_' . $name);
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @return Documan
      */
     public function forceExcludeOriginalCopy(): Documan
@@ -166,7 +189,6 @@ class Documan
         }
 
         if(!isset($this->defaultSizes[$size])) {
-            //dd('Unknown file size '. $size);
             return '';
         }
 
@@ -217,23 +239,6 @@ class Documan
         $this->remoteHost = $root.$diskAsSegment;
         return $this;
     }
-
-    /**
-     * example structure = ['small'     =>  ['width' => 120, 'height' => 120]],
-     * @param array $sizes
-     * @return static
-     */
-    /*public function addSize(array $sizes): static
-    {
-        $this->defaultSizes = array_merge($this->defaultSizes, $sizes);
-
-        //We default add the custom added sizes on the fly
-        foreach ($sizes as $key => $size) {
-            $this->chosenSizes[$key] = $size;
-        }
-
-        return $this;
-    }*/
 
 
     /**
@@ -288,21 +293,6 @@ class Documan
         }
     }
 
-
-    /*private function setChosenSize($size, $param): static
-    {
-        //Let check if reserve size is called
-        if(in_array($size, $this->reservedSizes)) {
-            dd("The size ".$size." is reserved.");
-        }
-
-        if($size === 'custom') {
-            $this->chosenSizes[$size] = ['width' => $param[0], 'height' => $param[1]];
-        } else {
-            $this->chosenSizes[$size] = $this->defaultSizes[$size];
-        }
-        return $this;
-    }*/
 
     /**
      * @param $fileName

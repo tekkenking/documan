@@ -29,7 +29,7 @@ class ImageResizer
         UploadedFile $file,
         string $fileNameWithPath,
         int $width = 800,
-        int $height = null,
+        ?int $height = null,
         string $watermarkPath = ''
     ): string|false {
         try {
@@ -84,18 +84,19 @@ class ImageResizer
             $this->addWatermarkImagick($imagick, $watermarkPath);
         }
 
-        $imagick->setImageCompressionQuality(90);
+        $quality = (int) config('documan.imageQuality', 90);
+        $imagick->setImageCompressionQuality($quality);
         $imageContent = $imagick->getImageBlob();
 
         Storage::disk($this->disk)->put($fileNameWithPath, $imageContent);
 
-        /*// Also save WebP version
-        $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
-        $webpContent = $this->convertToWebp($imageContent);
-
-        if ($webpContent) {
-            Storage::disk($this->disk)->put($webpPath, $webpContent);
-        }*/
+        if (config('documan.outputWebp', false)) {
+            $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
+            $webpContent = $this->convertToWebp($imageContent);
+            if ($webpContent) {
+                Storage::disk($this->disk)->put($webpPath, $webpContent);
+            }
+        }
 
         $imagick->clear();
         $imagick->destroy();
@@ -139,6 +140,14 @@ class ImageResizer
 
         $dstImage = imagecreatetruecolor($width, $resizeHeight);
 
+        // Preserve PNG transparency
+        if ($type === IMAGETYPE_PNG) {
+            imagealphablending($dstImage, false);
+            imagesavealpha($dstImage, true);
+            $transparent = imagecolorallocatealpha($dstImage, 0, 0, 0, 127);
+            imagefill($dstImage, 0, 0, $transparent);
+        }
+
         imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $width, $resizeHeight, $originalWidth, $originalHeight);
 
         // Add watermark if present
@@ -151,11 +160,13 @@ class ImageResizer
             imagedestroy($watermark);
         }
 
+        $quality = (int) config('documan.imageQuality', 90);
+
         ob_start();
         match ($type) {
-            IMAGETYPE_PNG => imagepng($dstImage, null, 9),
+            IMAGETYPE_PNG => imagepng($dstImage, null, (int) round((100 - $quality) / 10)),
             IMAGETYPE_GIF => imagegif($dstImage),
-            default       => imagejpeg($dstImage, null, 90),
+            default       => imagejpeg($dstImage, null, $quality),
         };
         $imageContent = ob_get_clean();
 
@@ -164,13 +175,13 @@ class ImageResizer
 
         Storage::disk($this->disk)->put($fileNameWithPath, $imageContent);
 
-        /*// Also save WebP version
-        $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
-        $webpContent = $this->convertToWebp($imageContent);
-
-        if ($webpContent) {
-            Storage::disk($this->disk)->put($webpPath, $webpContent);
-        }*/
+        if (config('documan.outputWebp', false)) {
+            $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
+            $webpContent = $this->convertToWebp($imageContent);
+            if ($webpContent) {
+                Storage::disk($this->disk)->put($webpPath, $webpContent);
+            }
+        }
 
         return $fileNameWithPath;
     }

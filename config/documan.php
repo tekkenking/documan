@@ -17,7 +17,17 @@ return [
     ],
 
     /**
-     * To keep the orginal size
+     * JPEG/WebP output quality (1–100). Also used for PNG compression (scaled to 0–9).
+     */
+    'imageQuality' => 90,
+
+    /**
+     * When true, a .webp copy is saved alongside every resized image.
+     */
+    'outputWebp' => false,
+
+    /**
+     * To keep the original size
      */
     'keepOriginalSize' => true,
 

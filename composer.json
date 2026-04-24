@@ -10,6 +10,11 @@
         "illuminate/filesystem": "^13.0",
         "illuminate/contracts": "^13.0"
     },
+    "require-dev": {
+        "pestphp/pest": "^3.0",
+        "orchestra/testbench": "^10.0",
+        "phpstan/phpstan": "^2.0"
+    },
     "autoload": {
         "psr-4": {
             "Tekkenking\\Documan\\": "src/"
@@ -17,6 +22,11 @@
         "files": [
             "src/DocumanHelpers.php"
         ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tekkenking\\Documan\\Tests\\": "tests/"
+        }
     },
     "authors": [
         {

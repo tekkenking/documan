@@ -11,6 +11,24 @@ trait WriteDocuman
     public mixed $formFile = null;
 
     /**
+     * MIME type → extension group map (used instead of client-supplied extension).
+     */
+    private static array $mimeToGroup = [
+        'image/jpeg'          => 'image',
+        'image/png'           => 'image',
+        'image/gif'           => 'image',
+        'image/webp'          => 'image',
+        'application/vnd.ms-excel'                                                       => 'excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'excel',
+        'text/csv'                                                                       => 'excel',
+        'application/msword'                                                             => 'document',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'document',
+        'application/vnd.ms-powerpoint'                                                  => 'powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'powerpoint',
+        'application/pdf'                                                                => 'pdf',
+    ];
+
+    /**
      * @return void
      */
     private function checkToKeepOriginalSize()
@@ -33,23 +51,20 @@ trait WriteDocuman
     /**
      * @return array
      */
-    public function upload(Request $request, string $inputName): DocumanCollections|array|bool
+    public function upload(Request $request, string $inputName): DocumanCollections|array
     {
-        $request1 = $request;
-        $inputName1 = $inputName;
-
-        if ($request1->hasFile($inputName1)) {
-            $file = $request1->file($inputName1);
-
-            $externalUploadResponse = $this->useExternalUploader($file);
-            if ($externalUploadResponse) {
-                return $externalUploadResponse;
-            }
-
-            return $this->upload_without_request($file);
-        } else {
-            return false;
+        if (!$request->hasFile($inputName)) {
+            throw new DocumanException("No file found for input '{$inputName}'.");
         }
+
+        $file = $request->file($inputName);
+
+        $externalUploadResponse = $this->useExternalUploader($file);
+        if ($externalUploadResponse) {
+            return $externalUploadResponse;
+        }
+
+        return $this->upload_without_request($file);
     }
 
     private function useExternalUploader($file)
@@ -82,7 +97,6 @@ trait WriteDocuman
 
     public function move(string|array $fileName, string $source_disk): array
     {
-        // $sourcePath = config('filesystems.disks.'.$source_disk.'.root');
         $sourcePath = $this->getFileSystemDisk($source_disk)['root'];
 
         if (! is_array($fileName)) {
@@ -115,21 +129,20 @@ trait WriteDocuman
 
     protected function processUploadSingle($file): array
     {
+        // Validate against actual MIME type (not client-supplied extension)
+        $mimeType = $file->getMimeType();
+        $extnGroup = self::$mimeToGroup[$mimeType] ?? null;
 
-        $extension = strtolower($file->getClientOriginalExtension());
-
-        $check = false;
-        $extnGroup = '';
-        foreach ($this->allowedFileExtensions as $grp => $extn) {
-            $check = in_array($extension, $extn);
-            if ($check) {
-                $extnGroup = $grp;
-                break;
-            }
+        if (!$extnGroup || !array_key_exists($extnGroup, $this->allowedFileExtensions)) {
+            throw new DocumanException("File type '{$mimeType}' is not allowed.");
         }
 
-        if (! $check) {
-            throw new DocumanException("File extension '{$extension}' is not allowed.");
+        // Derive a safe extension from the MIME type rather than trusting the client
+        $extension = strtolower($file->getClientOriginalExtension());
+        $allowedExtensionsForGroup = $this->allowedFileExtensions[$extnGroup];
+        if (!in_array($extension, $allowedExtensionsForGroup, true)) {
+            // Fall back to a known-safe extension for this MIME type
+            $extension = $this->safeExtensionFromMime($mimeType);
         }
 
         $fileName = Str::random();
@@ -220,6 +233,26 @@ trait WriteDocuman
         }
 
         return $fileNameInSizes;
+    }
+
+    private function safeExtensionFromMime(string $mimeType): string
+    {
+        $map = [
+            'image/jpeg'          => 'jpg',
+            'image/png'           => 'png',
+            'image/gif'           => 'gif',
+            'image/webp'          => 'webp',
+            'application/vnd.ms-excel'                                                       => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'xlsx',
+            'text/csv'                                                                       => 'csv',
+            'application/msword'                                                             => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'docx',
+            'application/vnd.ms-powerpoint'                                                  => 'ppt',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'pptx',
+            'application/pdf'                                                                => 'pdf',
+        ];
+
+        return $map[$mimeType] ?? 'bin';
     }
 
     protected function processUploadMultiple(array $files): array

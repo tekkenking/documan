@@ -17,50 +17,46 @@ trait ImageSizes
 
     public function sizes(array $sizes = []): Documan
     {
-        if(!empty($sizes)) {
+        if (!empty($sizes)) {
             $workingSizes = [];
 
             foreach ($sizes as $size => $value) {
-                if(is_int($size)) {
-                    //This mean it's unassociated array
-                    //Is this available amongst the default sizes
-                    if(!isset($this->defaultSizes[$value])) {
+                if (is_int($size)) {
+                    // Indexed array: reference an existing default size by name
+                    if (!isset($this->defaultSizes[$value])) {
                         throw new DocumanException("{$value} is not a valid size");
                     }
                     $workingSizes[$value] = $this->defaultSizes[$value];
                 } else {
-                    //Meaning it's an associated array that should have width and height
-
-                    //Let's make sure it's properly formed with width and height
-                    if(!is_array($value)) {
+                    // Associative array: must be ['width' => ..., 'height' => ...]
+                    if (!is_array($value)) {
                         throw new DocumanException("{$size} value must be properly formed array with width or height or both");
-                    } else {
-                        if(isset($this->defaultSizes[$size])) {
-                            //Meaning we want to overwrite config size at run time
-                            if(isset($value['width'])) {
-                                $this->defaultSizes[$size]['width'] = $value['width'];
-                            }
-
-                            if(isset($value['height'])) {
-                                $this->defaultSizes[$size]['height'] = $value['height'];
-                            }
-                        } else {
-                            //We are adding customer size type at run time
-                            if(!isset($value['width']) || !isset($value['height'])) {
-                                throw new DocumanException("{$size} value must be properly formed array with width and height");
-                            }
-
-                            $this->defaultSizes[$size]['width'] = $value['width'];
-                            $this->defaultSizes[$size]['height'] = $value['height'];
-                        }
                     }
-                    $workingSizes[$size] = $this->defaultSizes[$size];
+
+                    if (isset($this->defaultSizes[$size])) {
+                        // Override an existing default size at runtime without mutating $defaultSizes
+                        $sizeDefinition = $this->defaultSizes[$size];
+                        if (isset($value['width'])) {
+                            $sizeDefinition['width'] = $value['width'];
+                        }
+                        if (isset($value['height'])) {
+                            $sizeDefinition['height'] = $value['height'];
+                        }
+                    } else {
+                        // Register a brand-new custom size at runtime
+                        if (!isset($value['width']) || !isset($value['height'])) {
+                            throw new DocumanException("{$size} value must be properly formed array with width and height");
+                        }
+                        $sizeDefinition = ['width' => $value['width'], 'height' => $value['height']];
+                    }
+
+                    $workingSizes[$size] = $sizeDefinition;
                 }
             }
 
             $this->chosenSizes = array_merge($this->chosenSizes, $workingSizes);
-
         }
+
         return $this;
     }
 
