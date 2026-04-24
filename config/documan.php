@@ -17,7 +17,7 @@ return [
     ],
 
     /**
-     * JPEG/WebP output quality (1–100). Also used for PNG compression (scaled to 0–9).
+     * JPEG/WebP output quality (1-100). Also used for PNG compression (scaled to 0-9).
      */
     'imageQuality' => 90,
 
