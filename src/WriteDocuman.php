@@ -201,12 +201,44 @@ trait WriteDocuman
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
+        $queueEnabled = (bool) ($this->config['queue']['enabled'] ?? false);
+        $queueConnection = $this->config['queue']['connection'] ?? null;
+        $queueName = $this->config['queue']['name'] ?? null;
+
+        // The original (full-size) copy is always stored synchronously so the
+        // queue job can read it as its source.
+        $originalFileName = 'original_' . $fileName . '.' . $extension;
+
         foreach ($this->chosenSizes as $key => $size) {
-            $this->filename = $key.'_'.$fileName.'.'.$extension;
+            $this->filename = $key . '_' . $fileName . '.' . $extension;
 
             if ($key === 'original') {
                 Storage::disk($this->getDisk())
                     ->put($this->filename, file_get_contents($this->formFile));
+            } elseif ($queueEnabled) {
+                // Store the original first (idempotent if already stored)
+                if (!Storage::disk($this->getDisk())->exists($originalFileName)) {
+                    Storage::disk($this->getDisk())
+                        ->put($originalFileName, file_get_contents($this->formFile));
+                }
+
+                $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
+                    disk: $this->getDisk(),
+                    sourceFileName: $originalFileName,
+                    targetFileName: $this->filename,
+                    width: $size['width'],
+                    height: $size['height'],
+                );
+
+                if ($queueConnection) {
+                    $job->onConnection($queueConnection);
+                }
+
+                if ($queueName) {
+                    $job->onQueue($queueName);
+                }
+
+                dispatch($job);
             } else {
                 $imageProcessor = new ImageResizer($this->getDisk());
                 $imageProcessor->resizeAndPreserveExif(
@@ -221,13 +253,13 @@ trait WriteDocuman
 
             if ($this->returnResultWithLinks) {
                 $fileNameInSizes['links'][$key] = ($this->linkPath)
-                    ? $this->linkPath.'/'.$this->filename
+                    ? $this->linkPath . '/' . $this->filename
                     : null;
             }
 
             if ($this->returnResultWithPaths) {
                 $fileNameInSizes['paths'][$key] = ($this->localPath)
-                    ? $this->localPath.'/'.$this->filename
+                    ? $this->localPath . '/' . $this->filename
                     : null;
             }
         }

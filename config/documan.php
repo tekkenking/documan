@@ -17,6 +17,22 @@ return [
     ],
 
     /**
+     * Queue configuration for async image processing.
+     *
+     * When enabled, each resized image variant is processed by a queue worker
+     * instead of blocking the HTTP request. The original file is always stored
+     * synchronously first so the job has a source to read from.
+     *
+     * 'connection' — null uses the default queue connection (QUEUE_CONNECTION env)
+     * 'name'       — null uses the default queue name
+     */
+    'queue' => [
+        'enabled'    => false,
+        'connection' => null,
+        'name'       => null,
+    ],
+
+    /**
      * JPEG/WebP output quality (1-100). Also used for PNG compression (scaled to 0-9).
      */
     'imageQuality' => 90,

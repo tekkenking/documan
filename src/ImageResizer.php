@@ -23,7 +23,7 @@ class ImageResizer
     }
 
     /**
-     * Resize and store image with optional watermark.
+     * Resize an UploadedFile and store the result on the configured disk.
      */
     public function resizeAndPreserveExif(
         UploadedFile $file,
@@ -32,21 +32,58 @@ class ImageResizer
         ?int $height = null,
         string $watermarkPath = ''
     ): string|false {
+        return $this->resizeFromPath($file->getRealPath(), $fileNameWithPath, $width, $height, $watermarkPath);
+    }
+
+    /**
+     * Resize a file that is already stored on the configured disk.
+     *
+     * The source file is streamed to a local temp location, resized, and the
+     * result is written back to the same disk as $targetFileName.
+     */
+    public function resizeFromStoredFile(
+        string $sourceFileName,
+        string $targetFileName,
+        int $width = 800,
+        ?int $height = null,
+        string $watermarkPath = ''
+    ): string|false {
+        // Download to a system temp file so both local and cloud disks are supported
+        $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
+        file_put_contents($tmpPath, Storage::disk($this->disk)->get($sourceFileName));
+
+        try {
+            return $this->resizeFromPath($tmpPath, $targetFileName, $width, $height, $watermarkPath);
+        } finally {
+            @unlink($tmpPath);
+        }
+    }
+
+    /**
+     * Core resize pipeline — operates on a local filesystem path.
+     */
+    protected function resizeFromPath(
+        string $srcPath,
+        string $fileNameWithPath,
+        int $width,
+        ?int $height,
+        string $watermarkPath
+    ): string|false {
         try {
             if ($this->useImagick) {
-                return $this->processWithImagick($file, $fileNameWithPath, $width, $height, $watermarkPath);
+                return $this->processWithImagick($srcPath, $fileNameWithPath, $width, $height, $watermarkPath);
             }
 
-            return $this->processWithGD($file, $fileNameWithPath, $width, $height, $watermarkPath);
+            return $this->processWithGD($srcPath, $fileNameWithPath, $width, $height, $watermarkPath);
         } catch (\Exception $e) {
             logger()->error('Image processing failed: ' . $e->getMessage());
             throw $e;
         }
     }
 
-    protected function processWithImagick(UploadedFile $file, string $fileNameWithPath, int $width, ?int $height, string $watermarkPath): string
+    protected function processWithImagick(string $srcPath, string $fileNameWithPath, int $width, ?int $height, string $watermarkPath): string
     {
-        $imagick = new \Imagick($file->getRealPath());
+        $imagick = new \Imagick($srcPath);
 
         if (!$imagick->valid()) {
             throw new \Exception('Invalid image file');
@@ -117,9 +154,8 @@ class ImageResizer
         );
     }
 
-    protected function processWithGD(UploadedFile $file, string $fileNameWithPath, int $width, ?int $height, string $watermarkPath): string
+    protected function processWithGD(string $srcPath, string $fileNameWithPath, int $width, ?int $height, string $watermarkPath): string
     {
-        $srcPath = $file->getRealPath();
         [$originalWidth, $originalHeight, $type] = getimagesize($srcPath);
 
         if (!$originalWidth || !$originalHeight) {
