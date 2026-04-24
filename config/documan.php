@@ -43,7 +43,8 @@ return [
     'outputWebp' => false,
 
     /**
-     * To keep the original size
+     * When true, stores the unmodified original file alongside resized variants.
+     * Set to false to only keep the explicitly requested size variants.
      */
     'keepOriginalSize' => true,
 

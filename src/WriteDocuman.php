@@ -51,7 +51,7 @@ trait WriteDocuman
     /**
      * @return array
      */
-    public function upload(Request $request, string $inputName): DocumanCollections|array
+    public function upload(Request $request, string $inputName): array
     {
         if (!$request->hasFile($inputName)) {
             throw new DocumanException("No file found for input '{$inputName}'.");
@@ -209,17 +209,20 @@ trait WriteDocuman
         // queue job can read it as its source.
         $originalFileName = 'original_' . $fileName . '.' . $extension;
 
+        // Read the uploaded file content once to avoid repeated I/O in the loop
+        $originalContent = file_get_contents($this->formFile);
+
         foreach ($this->chosenSizes as $key => $size) {
             $this->filename = $key . '_' . $fileName . '.' . $extension;
 
             if ($key === 'original') {
                 Storage::disk($this->getDisk())
-                    ->put($this->filename, file_get_contents($this->formFile));
+                    ->put($this->filename, $originalContent);
             } elseif ($queueEnabled) {
                 // Store the original first (idempotent if already stored)
                 if (!Storage::disk($this->getDisk())->exists($originalFileName)) {
                     Storage::disk($this->getDisk())
-                        ->put($originalFileName, file_get_contents($this->formFile));
+                        ->put($originalFileName, $originalContent);
                 }
 
                 $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
