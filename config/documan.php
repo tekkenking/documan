@@ -17,9 +17,48 @@ return [
     ],
 
     /**
-     * To keep the orginal size
+     * Queue configuration for async image processing.
+     *
+     * When enabled, each resized image variant is processed by a queue worker
+     * instead of blocking the HTTP request. The original file is always stored
+     * synchronously first so the job has a source to read from.
+     *
+     * 'connection' — null uses the default queue connection (QUEUE_CONNECTION env)
+     * 'name'       — null uses the default queue name
      */
-    'keepOriginalSize' => true,
+    'queue' => [
+        'enabled'    => false,
+        'connection' => null,
+        'name'       => null,
+    ],
+
+    /**
+     * JPEG/WebP output quality (1-100). Also used for PNG compression (scaled to 0-9).
+     */
+    'imageQuality' => 90,
+
+    /**
+     * When true, a .webp copy is saved alongside every resized image.
+     */
+    'outputWebp' => false,
+
+    /**
+     * Delete behaviour.
+     *
+     * mode:
+     *   'hard' — files are permanently removed from the disk (default).
+     *   'soft' — files are moved to a trash folder on the same disk so they
+     *             can be restored or audited later. Use Storage::disk()->delete()
+     *             on the trashed path when you want to purge them for good.
+     *
+     * trash_folder:
+     *   The folder name (relative to the disk root) used when mode = 'soft'.
+     *   Defaults to 'trash'. Nested paths are supported (e.g. '.trash/documan').
+     */
+    'delete' => [
+        'mode'         => 'hard',
+        'trash_folder' => 'trash',
+    ],
 
     /**
      * Only the dimensions can be changed.

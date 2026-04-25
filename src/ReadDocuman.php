@@ -14,34 +14,34 @@ trait ReadDocuman
      */
     public function __call($method, $args)
     {
-        $show = false;
-        /*if(Str::startsWith($method, 'show')) {
-            //Let's check if it's an allowed method call
-            $show  = true;
-            $method = strtolower(str_replace('show', '', $method));
-        }*/
-
-        if (isset($this->defaultSizes[$method])) {
-            if (! $show && ! $this->showFile) {
-                return $this->setChosenSize($method, $args);
-            } else {
-
-                if ($show) {
-                    return $this->getDocBySize($method, $args)->first();
-                }
-
-                return $this->getDocBySize($method, $args);
+        // Special case: custom(width, height) — works in both upload and show mode
+        if ($method === 'custom') {
+            if ($this->showFile) {
+                return $this->getDocBySize($args[0] ?? 'custom', $args);
             }
-
-        } else {
-            throw new DocumanException($method.' method call is not allowed in documan');
+            if (count($args) >= 2) {
+                $customSize = ['width' => (int) $args[0], 'height' => (int) $args[1]];
+                $this->defaultSizes['custom'] = $customSize;
+                $this->chosenSizes['custom'] = $customSize;
+            }
+            return $this;
         }
 
+        if (isset($this->defaultSizes[$method])) {
+            if (!$this->showFile) {
+                // Upload mode: register the size to process
+                $this->chosenSizes[$method] = $this->defaultSizes[$method];
+                return $this;
+            }
+
+            return $this->getDocBySize($method, $args);
+        }
+
+        throw new DocumanException($method . ' method call is not allowed in documan');
     }
 
     private function buildShow($size, $fileName, $onlyFileName): Documan
     {
-
         if ($this->config['externalAdapter']['enabled']) {
             // Your external provider show logic here
             $adapterClass = $this->config['externalAdapter']['adapter']['show'];
@@ -62,13 +62,8 @@ trait ReadDocuman
         $this->isDiskSet();
         $fileSystemDisk = $this->getFileSystemDisk($this->getDisk());
 
-        if (! file_exists($fileSystemDisk['root'].'/'.$fileNameBySize)) {
-            // is show in strict mode
-            /*if($this->showMode) {
-                dump($this->arrFilesToShow);
-                dd('Strict MODE:: The size '.$size.' does not exist');
-            }*/
-            // Supporting those files without the size prefix in there naming
+        if (!file_exists($fileSystemDisk['root'] . '/' . $fileNameBySize)) {
+            // Supporting those files without the size prefix in their naming
             $fileNameBySize = $fileName;
         }
 

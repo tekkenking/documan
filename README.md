@@ -38,6 +38,8 @@ For earlier versions, add the service provider to `config/app.php`:
 
 ### Uploading a File
 
+The original file is **always** stored automatically — it is saved as the plain `base_name` on disk (no prefix). Resized variants are stored alongside it with their size prefix (e.g. `medium_AbCdEfGhIj.jpg`).
+
 ```php
 // In your controller
 use Illuminate\Http\Request;
@@ -53,9 +55,9 @@ public function store(Request $request)
     // $result is an array:
     // [
     //   'fileType'   => 'image',
-    //   'base_name'  => 'AbCdEfGhIj.jpg',
+    //   'base_name'  => 'AbCdEfGhIj.jpg',        // ← also the original on disk
     //   'variations' => [
-    //     'original'  => 'original_AbCdEfGhIj.jpg',
+    //     'original'  => 'AbCdEfGhIj.jpg',        // plain base_name, no prefix
     //     'small'     => 'small_AbCdEfGhIj.jpg',
     //     'thumbnail' => 'thumbnail_AbCdEfGhIj.jpg',
     //     'medium'    => 'medium_AbCdEfGhIj.jpg',
@@ -68,6 +70,8 @@ public function store(Request $request)
     $user->save();
 }
 ```
+
+> **Backward compatibility** — Images uploaded with an earlier version of Documan may have their original stored as `original_AbCdEfGhIj.jpg` (with the `original_` prefix). Documan handles both formats transparently when displaying and deleting files.
 
 ### Uploading with Custom Sizes
 
@@ -89,8 +93,36 @@ $url = documan('my_disk')->show($user->avatar)->medium();
 // Get the thumbnail URL
 $url = documan('my_disk')->show($user->avatar)->thumbnail();
 
-// Get original
+// Get the original (full-size)
 $url = documan('my_disk')->show($user->avatar)->original();
+```
+
+### Deleting a File
+
+`delete()` removes the original **and** all resized variants. It respects the `delete.mode` setting in `config/documan.php`:
+
+- **`hard`** *(default)* — files are permanently removed from disk.
+- **`soft`** — files are moved to a configurable trash folder on the same disk. They can be inspected or restored before a final hard purge.
+
+```php
+// Hard delete (permanent) — uses config default
+documan('my_disk')->delete($user->avatar);
+
+// Soft delete — override mode at runtime via config or use the config file
+config(['documan.delete.mode' => 'soft']);
+documan('my_disk')->delete($user->avatar);
+// Files are moved to: {disk_root}/trash/{filename}
+```
+
+Both the current (un-prefixed) and the legacy (`original_`-prefixed) originals are accounted for automatically, so running `delete()` is safe regardless of when the file was originally uploaded.
+
+Configure delete behaviour in `config/documan.php`:
+
+```php
+'delete' => [
+    'mode'         => 'hard',   // 'hard' | 'soft'
+    'trash_folder' => 'trash',  // relative path within disk root (soft mode only)
+],
 ```
 
 ### Using the Cast
@@ -129,6 +161,29 @@ $url = documan()
 | tiny      | 50    | 50     |
 
 These can be overridden in `config/documan.php` under `defaultImageSizes`.
+
+### Async / Queue Processing
+
+Set `queue.enabled = true` in `config/documan.php` to process resized variants in the background. The original is always stored synchronously first so the queue job has a source to read from.
+
+```php
+'queue' => [
+    'enabled'    => true,
+    'connection' => null,   // null = default queue connection
+    'name'       => null,   // null = default queue name
+],
+```
+
+## Migration from Earlier Versions
+
+| What changed | Old behaviour | New behaviour |
+|---|---|---|
+| Original file name on disk | `original_AbCdEfGhIj.jpg` | `AbCdEfGhIj.jpg` (plain `base_name`) |
+| Original storage | Optional (`keepOriginalSize` config) | Always stored (mandatory) |
+| `keepOriginalSize` config key | Present | **Removed** — replace with `delete` block |
+| Delete | Permanent only | `hard` (permanent) or `soft` (move to trash) |
+
+**No action is needed for existing files.** Documan reads and deletes both the old `original_`-prefixed files and the new un-prefixed originals automatically.
 
 ## License
 

@@ -87,7 +87,7 @@ class DocumanCast implements CastsAttributes
             return $value->showFileName();
         }
 
-        if (request()->$value && request()->hasFile($value)) {
+        if (request()->hasFile($value)) {
             $documan = $this->chooseDisk(new Documan);
             $documan->sizesInArr($this->sizes);
             $filesArr = $documan->upload(request(), $value);
@@ -99,18 +99,6 @@ class DocumanCast implements CastsAttributes
 
             // return $filesArr;
         } else {
-
-            // if ($value) {
-
-            // $exnt = $this->getValueExtension($value);
-
-            // If the returned extension is not equals to the $value, meaning it's a valid file.
-            // if($exnt !== $value) {
-            // return $value;
-            // }
-
-            // }
-
             return $value ?? null;
         }
     }

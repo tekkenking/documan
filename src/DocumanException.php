@@ -45,9 +45,9 @@ class DocumanException extends Exception
      *
      * @return \Illuminate\Http\Response
      */
-    public function render()
+    public function render(): \Illuminate\Http\Response
     {
-        return $this->message;
+        return response($this->message, 422);
     }
 
 }

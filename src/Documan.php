@@ -141,12 +141,52 @@ class Documan
 
 
     /**
-     * @return Documan
+     * Delete a file and all its size variants from the configured disk.
+     *
+     * Behaviour is controlled by config('documan.delete.mode'):
+     *   'hard' (default) — files are permanently removed.
+     *   'soft'           — files are moved to the trash folder (config: delete.trash_folder)
+     *                      on the same disk, allowing recovery before a hard purge.
+     *
+     * Backward compatibility: both the legacy prefixed original (`original_abc.jpg`)
+     * and the current un-prefixed original (`abc.jpg`) are handled automatically.
+     *
+     * @param string|array $baseName The base_name returned by upload()
+     * @return bool
      */
-    public function forceExcludeOriginalCopy(): Documan
+    public function delete(string|array $baseName): bool
     {
-        unset($this->chosenSizes['original']);
-        return $this;
+        $this->isDiskSet();
+        $disk = Storage::disk($this->getDisk());
+        $baseNames = is_array($baseName) ? $baseName : [$baseName];
+
+        $mode        = $this->config['delete']['mode'] ?? 'hard';
+        $trashFolder = trim($this->config['delete']['trash_folder'] ?? 'trash', '/');
+
+        foreach ($baseNames as $name) {
+            // Candidates:
+            //   $name            — current: base_name IS the original (no prefix)
+            //   'original_'.$name — legacy: original stored with prefix
+            //   '{size}_'.$name  — all resized variants
+            $candidates = [$name, 'original_' . $name];
+            foreach (array_keys($this->defaultSizes) as $size) {
+                $candidates[] = $size . '_' . $name;
+            }
+
+            foreach ($candidates as $candidate) {
+                if (!$disk->exists($candidate)) {
+                    continue;
+                }
+
+                if ($mode === 'soft') {
+                    $disk->move($candidate, $trashFolder . '/' . $candidate);
+                } else {
+                    $disk->delete($candidate);
+                }
+            }
+        }
+
+        return true;
     }
 
     public function addExtension(array $extns): Documan
@@ -166,7 +206,6 @@ class Documan
         }
 
         if(!isset($this->defaultSizes[$size])) {
-            //dd('Unknown file size '. $size);
             return '';
         }
 
@@ -217,23 +256,6 @@ class Documan
         $this->remoteHost = $root.$diskAsSegment;
         return $this;
     }
-
-    /**
-     * example structure = ['small'     =>  ['width' => 120, 'height' => 120]],
-     * @param array $sizes
-     * @return static
-     */
-    /*public function addSize(array $sizes): static
-    {
-        $this->defaultSizes = array_merge($this->defaultSizes, $sizes);
-
-        //We default add the custom added sizes on the fly
-        foreach ($sizes as $key => $size) {
-            $this->chosenSizes[$key] = $size;
-        }
-
-        return $this;
-    }*/
 
 
     /**
@@ -289,29 +311,28 @@ class Documan
     }
 
 
-    /*private function setChosenSize($size, $param): static
-    {
-        //Let check if reserve size is called
-        if(in_array($size, $this->reservedSizes)) {
-            dd("The size ".$size." is reserved.");
-        }
-
-        if($size === 'custom') {
-            $this->chosenSizes[$size] = ['width' => $param[0], 'height' => $param[1]];
-        } else {
-            $this->chosenSizes[$size] = $this->defaultSizes[$size];
-        }
-        return $this;
-    }*/
-
     /**
+     * Resolve the local path of the original file on the source disk.
+     *
+     * New uploads store the original as the plain base_name (e.g. abc123.jpg).
+     * Legacy uploads used an `original_` prefix (e.g. original_abc123.jpg).
+     * This method tries the unprefixed path first, then falls back to the
+     * legacy prefix so that existing files can still be moved.
+     *
      * @param $fileName
      * @param $sourcePath
      * @return string
      */
     private function buildFileToBeMoved($fileName, $sourcePath): string
     {
-        return $sourcePath.'/original_'.$fileName;
+        $newPath    = $sourcePath . '/' . $fileName;
+        $legacyPath = $sourcePath . '/original_' . $fileName;
+
+        if (file_exists($newPath)) {
+            return $newPath;
+        }
+
+        return $legacyPath;
     }
 
     /**

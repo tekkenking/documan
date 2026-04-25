@@ -33,8 +33,9 @@ class DocumanServiceProvider extends ServiceProvider
             __DIR__.'/../config/documan.php', 'documan'
         );
 
-        $this->app->singleton('documan', function ($app) {
-            return new Documan();
+        $this->app->bind('documan', function ($app, array $params = []) {
+            $disk = $params[0] ?? '';
+            return new Documan($disk);
         });
 
     }

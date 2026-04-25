@@ -11,16 +11,32 @@ trait WriteDocuman
     public mixed $formFile = null;
 
     /**
+     * MIME type → extension group map (used instead of client-supplied extension).
+     */
+    private static array $mimeToGroup = [
+        'image/jpeg'          => 'image',
+        'image/png'           => 'image',
+        'image/gif'           => 'image',
+        'image/webp'          => 'image',
+        'application/vnd.ms-excel'                                                       => 'excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'excel',
+        'text/csv'                                                                       => 'excel',
+        'application/msword'                                                             => 'document',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'document',
+        'application/vnd.ms-powerpoint'                                                  => 'powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'powerpoint',
+        'application/pdf'                                                                => 'pdf',
+    ];
+
+    /**
      * @return void
+     * @deprecated Original copy is now always stored; this method does nothing
+     *             and will be removed in a future release.
      */
     private function checkToKeepOriginalSize()
     {
-        // This would add or remove original size.
-        if ($this->config['keepOriginalSize']) {
-            $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
-        } elseif (isset($this->chosenSizes['original'])) {
-            unset($this->chosenSizes['original']);
-        }
+        // Original storage is now mandatory. This method is intentionally a no-op
+        // and exists only to avoid fatal errors if called from overriding code.
     }
 
     public function plain($value): static
@@ -33,23 +49,20 @@ trait WriteDocuman
     /**
      * @return array
      */
-    public function upload(Request $request, string $inputName): DocumanCollections|array|bool
+    public function upload(Request $request, string $inputName): array
     {
-        $request1 = $request;
-        $inputName1 = $inputName;
-
-        if ($request1->hasFile($inputName1)) {
-            $file = $request1->file($inputName1);
-
-            $externalUploadResponse = $this->useExternalUploader($file);
-            if ($externalUploadResponse) {
-                return $externalUploadResponse;
-            }
-
-            return $this->upload_without_request($file);
-        } else {
-            return false;
+        if (!$request->hasFile($inputName)) {
+            throw new DocumanException("No file found for input '{$inputName}'.");
         }
+
+        $file = $request->file($inputName);
+
+        $externalUploadResponse = $this->useExternalUploader($file);
+        if ($externalUploadResponse) {
+            return $externalUploadResponse;
+        }
+
+        return $this->upload_without_request($file);
     }
 
     private function useExternalUploader($file)
@@ -82,7 +95,6 @@ trait WriteDocuman
 
     public function move(string|array $fileName, string $source_disk): array
     {
-        // $sourcePath = config('filesystems.disks.'.$source_disk.'.root');
         $sourcePath = $this->getFileSystemDisk($source_disk)['root'];
 
         if (! is_array($fileName)) {
@@ -104,7 +116,10 @@ trait WriteDocuman
     {
         $this->isDiskSet();
 
-        $this->checkToKeepOriginalSize();
+        // Original is now mandatory — always prepend it to whichever sizes the
+        // caller selected. Using array union preserves an explicit 'original'
+        // entry the caller may have added while guaranteeing it always exists.
+        $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
 
         if (is_array($file)) {
             return $this->processUploadMultiple($file);
@@ -115,21 +130,20 @@ trait WriteDocuman
 
     protected function processUploadSingle($file): array
     {
+        // Validate against actual MIME type (not client-supplied extension)
+        $mimeType = $file->getMimeType();
+        $extnGroup = self::$mimeToGroup[$mimeType] ?? null;
 
-        $extension = strtolower($file->getClientOriginalExtension());
-
-        $check = false;
-        $extnGroup = '';
-        foreach ($this->allowedFileExtensions as $grp => $extn) {
-            $check = in_array($extension, $extn);
-            if ($check) {
-                $extnGroup = $grp;
-                break;
-            }
+        if (!$extnGroup || !array_key_exists($extnGroup, $this->allowedFileExtensions)) {
+            throw new DocumanException("File type '{$mimeType}' is not allowed.");
         }
 
-        if (! $check) {
-            throw new DocumanException("File extension '{$extension}' is not allowed.");
+        // Derive a safe extension from the MIME type rather than trusting the client
+        $extension = strtolower($file->getClientOriginalExtension());
+        $allowedExtensionsForGroup = $this->allowedFileExtensions[$extnGroup];
+        if (!in_array($extension, $allowedExtensionsForGroup, true)) {
+            // Fall back to a known-safe extension for this MIME type
+            $extension = $this->safeExtensionFromMime($mimeType);
         }
 
         $fileName = Str::random();
@@ -188,13 +202,47 @@ trait WriteDocuman
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
-        foreach ($this->chosenSizes as $key => $size) {
-            $this->filename = $key.'_'.$fileName.'.'.$extension;
+        $queueEnabled = (bool) ($this->config['queue']['enabled'] ?? false);
+        $queueConnection = $this->config['queue']['connection'] ?? null;
+        $queueName = $this->config['queue']['name'] ?? null;
 
+        // The original is the base_name itself — no prefix.
+        // It is always stored synchronously so queue jobs have a source to read from.
+        $baseFileName = $fileName . '.' . $extension;   // == $this->filename at this point
+
+        // Read the uploaded file content once to avoid repeated I/O in the loop.
+        $originalContent = file_get_contents($this->formFile);
+
+        // Always persist the original immediately (idempotent).
+        Storage::disk($this->getDisk())->put($baseFileName, $originalContent);
+
+        foreach ($this->chosenSizes as $key => $size) {
             if ($key === 'original') {
-                Storage::disk($this->getDisk())
-                    ->put($this->filename, file_get_contents($this->formFile));
+                // Original is already stored above as the plain base_name.
+                $this->filename = $baseFileName;
+            } elseif ($queueEnabled) {
+                $this->filename = $key . '_' . $fileName . '.' . $extension;
+
+                $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
+                    disk: $this->getDisk(),
+                    sourceFileName: $baseFileName,   // plain base_name, no prefix
+                    targetFileName: $this->filename,
+                    width: $size['width'],
+                    height: $size['height'],
+                );
+
+                if ($queueConnection) {
+                    $job->onConnection($queueConnection);
+                }
+
+                if ($queueName) {
+                    $job->onQueue($queueName);
+                }
+
+                dispatch($job);
             } else {
+                $this->filename = $key . '_' . $fileName . '.' . $extension;
+
                 $imageProcessor = new ImageResizer($this->getDisk());
                 $imageProcessor->resizeAndPreserveExif(
                     $this->formFile,
@@ -208,18 +256,38 @@ trait WriteDocuman
 
             if ($this->returnResultWithLinks) {
                 $fileNameInSizes['links'][$key] = ($this->linkPath)
-                    ? $this->linkPath.'/'.$this->filename
+                    ? $this->linkPath . '/' . $this->filename
                     : null;
             }
 
             if ($this->returnResultWithPaths) {
                 $fileNameInSizes['paths'][$key] = ($this->localPath)
-                    ? $this->localPath.'/'.$this->filename
+                    ? $this->localPath . '/' . $this->filename
                     : null;
             }
         }
 
         return $fileNameInSizes;
+    }
+
+    private function safeExtensionFromMime(string $mimeType): string
+    {
+        $map = [
+            'image/jpeg'          => 'jpg',
+            'image/png'           => 'png',
+            'image/gif'           => 'gif',
+            'image/webp'          => 'webp',
+            'application/vnd.ms-excel'                                                       => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'xlsx',
+            'text/csv'                                                                       => 'csv',
+            'application/msword'                                                             => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'docx',
+            'application/vnd.ms-powerpoint'                                                  => 'ppt',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'pptx',
+            'application/pdf'                                                                => 'pdf',
+        ];
+
+        return $map[$mimeType] ?? 'bin';
     }
 
     protected function processUploadMultiple(array $files): array
