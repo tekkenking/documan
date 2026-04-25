@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Storage;
 beforeEach(function () {
     config()->set('documan', array_merge(
         require __DIR__ . '/../../config/documan.php',
-        ['disk' => 'testing', 'keepOriginalSize' => false]
+        ['disk' => 'testing']
     ));
     config()->set('filesystems.disks.testing', [
         'driver' => 'local',
@@ -44,14 +44,15 @@ it('documan() helper returns a fresh instance on every call', function () {
     expect($a)->not->toBe($b);
 });
 
-it('delete() removes all size variants from disk', function () {
+it('delete() hard mode removes base_name, legacy original_ prefix, and all size variants', function () {
     Storage::fake('testing');
 
     $disk     = Storage::disk('testing');
     $baseName = 'abc123.jpg';
 
+    // New-style original (plain base_name) + legacy original_ + size variants
     $disk->put($baseName, 'data');
-    $disk->put('original_' . $baseName, 'data');
+    $disk->put('original_' . $baseName, 'data');   // backward-compat legacy file
     $disk->put('medium_' . $baseName, 'data');
     $disk->put('small_' . $baseName, 'data');
 
@@ -62,4 +63,26 @@ it('delete() removes all size variants from disk', function () {
     Storage::disk('testing')->assertMissing('original_' . $baseName);
     Storage::disk('testing')->assertMissing('medium_' . $baseName);
     Storage::disk('testing')->assertMissing('small_' . $baseName);
+});
+
+it('delete() soft mode moves files to the trash folder instead of deleting them', function () {
+    Storage::fake('testing');
+
+    config()->set('documan.delete.mode', 'soft');
+    config()->set('documan.delete.trash_folder', 'trash');
+
+    $disk     = Storage::disk('testing');
+    $baseName = 'abc123.jpg';
+
+    $disk->put($baseName, 'data');
+    $disk->put('medium_' . $baseName, 'data');
+
+    $documan = new Documan('testing');
+    $documan->delete($baseName);
+
+    // Originals moved to trash
+    Storage::disk('testing')->assertMissing($baseName);
+    Storage::disk('testing')->assertMissing('medium_' . $baseName);
+    Storage::disk('testing')->assertExists('trash/' . $baseName);
+    Storage::disk('testing')->assertExists('trash/medium_' . $baseName);
 });

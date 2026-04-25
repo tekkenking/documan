@@ -15,9 +15,8 @@ beforeEach(function () {
     config()->set('documan', array_merge(
         require __DIR__ . '/../../config/documan.php',
         [
-            'disk'            => 'testing',
-            'keepOriginalSize' => true,
-            'queue'           => ['enabled' => false, 'connection' => null, 'name' => null],
+            'disk'  => 'testing',
+            'queue' => ['enabled' => false, 'connection' => null, 'name' => null],
         ]
     ));
     config()->set('filesystems.disks.testing', [
@@ -41,14 +40,14 @@ it('dispatches ProcessDocumanImage jobs for each size when queue is enabled', fu
 
     $disk = \Illuminate\Support\Facades\Storage::fake('testing');
 
-    // Fake an original file already on disk (simulating the synchronous write)
-    $originalName = 'original_abc123.jpg';
-    $disk->put($originalName, 'fake-image-data');
+    // Fake the original already on disk — new style: plain base_name (no prefix)
+    $sourceName = 'abc123.jpg';
+    $disk->put($sourceName, 'fake-image-data');
 
     // Dispatch the job manually to confirm it reaches the queue
     ProcessDocumanImage::dispatch(
         disk: 'testing',
-        sourceFileName: $originalName,
+        sourceFileName: $sourceName,
         targetFileName: 'medium_abc123.jpg',
         width: 800,
         height: 800,
@@ -56,7 +55,7 @@ it('dispatches ProcessDocumanImage jobs for each size when queue is enabled', fu
 
     Queue::assertPushed(ProcessDocumanImage::class, function ($job) {
         return $job->disk === 'testing'
-            && $job->sourceFileName === 'original_abc123.jpg'
+            && $job->sourceFileName === 'abc123.jpg'
             && $job->targetFileName === 'medium_abc123.jpg'
             && $job->width === 800
             && $job->height === 800;
@@ -68,7 +67,7 @@ it('ProcessDocumanImage job carries the correct connection and queue when set', 
 
     $job = (new ProcessDocumanImage(
         disk: 'testing',
-        sourceFileName: 'original_abc123.jpg',
+        sourceFileName: 'abc123.jpg',
         targetFileName: 'small_abc123.jpg',
         width: 170,
         height: 170,

@@ -43,10 +43,22 @@ return [
     'outputWebp' => false,
 
     /**
-     * When true, stores the unmodified original file alongside resized variants.
-     * Set to false to only keep the explicitly requested size variants.
+     * Delete behaviour.
+     *
+     * mode:
+     *   'hard' — files are permanently removed from the disk (default).
+     *   'soft' — files are moved to a trash folder on the same disk so they
+     *             can be restored or audited later. Use Storage::disk()->delete()
+     *             on the trashed path when you want to purge them for good.
+     *
+     * trash_folder:
+     *   The folder name (relative to the disk root) used when mode = 'soft'.
+     *   Defaults to 'trash'. Nested paths are supported (e.g. '.trash/documan').
      */
-    'keepOriginalSize' => true,
+    'delete' => [
+        'mode'         => 'hard',
+        'trash_folder' => 'trash',
+    ],
 
     /**
      * Only the dimensions can be changed.

@@ -30,15 +30,13 @@ trait WriteDocuman
 
     /**
      * @return void
+     * @deprecated Original copy is now always stored; this method does nothing
+     *             and will be removed in a future release.
      */
     private function checkToKeepOriginalSize()
     {
-        // This would add or remove original size.
-        if ($this->config['keepOriginalSize']) {
-            $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
-        } elseif (isset($this->chosenSizes['original'])) {
-            unset($this->chosenSizes['original']);
-        }
+        // Original storage is now mandatory. This method is intentionally a no-op
+        // and exists only to avoid fatal errors if called from overriding code.
     }
 
     public function plain($value): static
@@ -118,7 +116,10 @@ trait WriteDocuman
     {
         $this->isDiskSet();
 
-        $this->checkToKeepOriginalSize();
+        // Original is now mandatory — always prepend it to whichever sizes the
+        // caller selected. Using array union preserves an explicit 'original'
+        // entry the caller may have added while guaranteeing it always exists.
+        $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
 
         if (is_array($file)) {
             return $this->processUploadMultiple($file);
@@ -205,29 +206,26 @@ trait WriteDocuman
         $queueConnection = $this->config['queue']['connection'] ?? null;
         $queueName = $this->config['queue']['name'] ?? null;
 
-        // The original (full-size) copy is always stored synchronously so the
-        // queue job can read it as its source.
-        $originalFileName = 'original_' . $fileName . '.' . $extension;
+        // The original is the base_name itself — no prefix.
+        // It is always stored synchronously so queue jobs have a source to read from.
+        $baseFileName = $fileName . '.' . $extension;   // == $this->filename at this point
 
-        // Read the uploaded file content once to avoid repeated I/O in the loop
+        // Read the uploaded file content once to avoid repeated I/O in the loop.
         $originalContent = file_get_contents($this->formFile);
 
-        foreach ($this->chosenSizes as $key => $size) {
-            $this->filename = $key . '_' . $fileName . '.' . $extension;
+        // Always persist the original immediately (idempotent).
+        Storage::disk($this->getDisk())->put($baseFileName, $originalContent);
 
+        foreach ($this->chosenSizes as $key => $size) {
             if ($key === 'original') {
-                Storage::disk($this->getDisk())
-                    ->put($this->filename, $originalContent);
+                // Original is already stored above as the plain base_name.
+                $this->filename = $baseFileName;
             } elseif ($queueEnabled) {
-                // Store the original first (idempotent if already stored)
-                if (!Storage::disk($this->getDisk())->exists($originalFileName)) {
-                    Storage::disk($this->getDisk())
-                        ->put($originalFileName, $originalContent);
-                }
+                $this->filename = $key . '_' . $fileName . '.' . $extension;
 
                 $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
                     disk: $this->getDisk(),
-                    sourceFileName: $originalFileName,
+                    sourceFileName: $baseFileName,   // plain base_name, no prefix
                     targetFileName: $this->filename,
                     width: $size['width'],
                     height: $size['height'],
@@ -243,6 +241,8 @@ trait WriteDocuman
 
                 dispatch($job);
             } else {
+                $this->filename = $key . '_' . $fileName . '.' . $extension;
+
                 $imageProcessor = new ImageResizer($this->getDisk());
                 $imageProcessor->resizeAndPreserveExif(
                     $this->formFile,
