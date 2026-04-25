@@ -15,7 +15,8 @@ use Tekkenking\Documan\ImageResizer;
  * Processes a single image resize variant asynchronously.
  *
  * Dispatched by Documan when `queue.enabled = true` in the config.
- * The original file must already be stored on the disk before this job runs.
+ * The original file must already be stored on the disk (as the plain base_name,
+ * e.g. abc123.jpg) before this job runs.
  *
  * Usage (automatic when queue is enabled):
  *
@@ -38,7 +39,9 @@ class ProcessDocumanImage implements ShouldQueue
 
     /**
      * @param string   $disk            The Laravel storage disk name
-     * @param string   $sourceFileName  The original file already stored on the disk (e.g. original_abc123.jpg)
+     * @param string   $sourceFileName  The original file already stored on the disk as its plain
+     *                                  base_name (e.g. abc123.jpg). This is the file that was
+     *                                  saved synchronously before the job was dispatched.
      * @param string   $targetFileName  The output file to write (e.g. medium_abc123.jpg)
      * @param int      $width           Target width in pixels
      * @param int|null $height          Target height (null = preserve aspect ratio)
