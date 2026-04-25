@@ -43,5 +43,10 @@
                 "Documan": "DocumanFacade"
             }
         }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     }
 }
