@@ -45,6 +45,7 @@ class ProcessDocumanImage implements ShouldQueue
      * @param string   $targetFileName  The output file to write (e.g. medium_abc123.jpg)
      * @param int      $width           Target width in pixels
      * @param int|null $height          Target height (null = preserve aspect ratio)
+     * @param string   $visibility      File visibility: 'public' or 'private'
      */
     public function __construct(
         public readonly string $disk,
@@ -52,6 +53,7 @@ class ProcessDocumanImage implements ShouldQueue
         public readonly string $targetFileName,
         public readonly int $width,
         public readonly ?int $height = null,
+        public readonly string $visibility = 'public',
     ) {}
 
     /**
@@ -60,6 +62,7 @@ class ProcessDocumanImage implements ShouldQueue
     public function handle(): void
     {
         $resizer = new ImageResizer($this->disk);
+        $resizer->setVisibility($this->visibility);
         $resizer->resizeFromStoredFile(
             $this->sourceFileName,
             $this->targetFileName,

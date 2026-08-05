@@ -11,7 +11,7 @@ class ImageResizer
 {
     protected bool $useImagick;
 
-    public function __construct(protected string $disk = 'public')
+    public function __construct(protected string $disk = 'public', protected string $visibility = 'public')
     {
         $this->useImagick = extension_loaded('imagick');
     }
@@ -19,6 +19,12 @@ class ImageResizer
     public function setDisk(string $disk): self
     {
         $this->disk = $disk;
+        return $this;
+    }
+
+    public function setVisibility(string $visibility): self
+    {
+        $this->visibility = $visibility;
         return $this;
     }
 
@@ -117,7 +123,7 @@ class ImageResizer
 
             try {
                 $imagick->writeImage($primaryTmp);
-                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'));
+                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'), ['visibility' => $this->visibility]);
 
                 if (config('documan.outputWebp', false)) {
                     $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
@@ -129,7 +135,7 @@ class ImageResizer
                             $webpTmp = $this->createImageTempFile($webpPath);
                             try {
                                 $webp->writeImage($webpTmp);
-                                Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'));
+                                Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'), ['visibility' => $this->visibility]);
                             } finally {
                                 @unlink($webpTmp);
                             }
@@ -214,7 +220,7 @@ class ImageResizer
 
             try {
                 $this->writeGdImageToPath($dstImage, $type, $primaryTmp, $quality);
-                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'));
+                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'), ['visibility' => $this->visibility]);
 
                 if (config('documan.outputWebp', false) && function_exists('imagewebp')) {
                     $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
@@ -222,7 +228,7 @@ class ImageResizer
                         $webpTmp = $this->createImageTempFile($webpPath);
                         try {
                             imagewebp($dstImage, $webpTmp, 85);
-                            Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'));
+                            Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'), ['visibility' => $this->visibility]);
                         } finally {
                             @unlink($webpTmp);
                         }

@@ -3,6 +3,16 @@
 return [
     'disk' => '',
 
+    /**
+     * Visibility for files uploaded to cloud disks (e.g. S3).
+     *
+     * 'public'  — uploaded files are publicly readable (default).
+     * 'private' — uploaded files are private / require signed URLs.
+     *
+     * This can also be overridden at runtime via ->visibility('private').
+     */
+    's3_visibility' => 'public',
+
     'remote' => [
         'host_url' => '',
         'disk' => '',

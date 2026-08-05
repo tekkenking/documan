@@ -163,7 +163,7 @@ trait WriteDocuman
         $fileNameInSizes['base_name'] = $this->filename;
 
         Storage::disk($this->getDisk())
-            ->put($this->filename, file_get_contents($this->formFile));
+            ->put($this->filename, file_get_contents($this->formFile), ['visibility' => $this->getVisibility()]);
 
         if ($this->returnResultWithLinks) {
             $fileNameInSizes['link'] = ($this->linkPath)
@@ -196,7 +196,7 @@ trait WriteDocuman
         $localSourcePath = $this->resolveLocalImageSourcePath();
 
         // Always persist the original immediately (idempotent).
-        Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'));
+        Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'), ['visibility' => $this->getVisibility()]);
 
         foreach ($this->chosenSizes as $key => $size) {
             if ($key === 'original') {
@@ -211,6 +211,7 @@ trait WriteDocuman
                     targetFileName: $this->filename,
                     width: $size['width'],
                     height: $size['height'],
+                    visibility: $this->getVisibility(),
                 );
 
                 if ($queueConnection) {
@@ -226,6 +227,7 @@ trait WriteDocuman
                 $this->filename = $key . '_' . $fileName . '.' . $extension;
 
                 $imageProcessor = new ImageResizer($this->getDisk());
+                $imageProcessor->setVisibility($this->getVisibility());
                 $imageProcessor->resizeAndPreserveExif(
                     $localSourcePath,
                     $this->filename,
