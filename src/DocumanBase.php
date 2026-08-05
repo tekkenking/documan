@@ -18,7 +18,7 @@ abstract class DocumanBase
     public function set(array $documanArr): static
     {
         $this->filesArr = $documanArr;
-        $this->files = (object) json_decode(json_encode($documanArr));
+        $this->files = documan_recursive_to_object($documanArr);
         return $this;
     }
 }

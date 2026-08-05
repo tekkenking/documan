@@ -26,13 +26,15 @@ class ImageResizer
      * Resize an UploadedFile and store the result on the configured disk.
      */
     public function resizeAndPreserveExif(
-        UploadedFile $file,
+        UploadedFile|string $file,
         string $fileNameWithPath,
         int $width = 800,
         ?int $height = null,
         string $watermarkPath = ''
     ): string|false {
-        return $this->resizeFromPath($file->getRealPath(), $fileNameWithPath, $width, $height, $watermarkPath);
+        $sourcePath = $file instanceof UploadedFile ? $file->getRealPath() : $file;
+
+        return $this->resizeFromPath($sourcePath, $fileNameWithPath, $width, $height, $watermarkPath);
     }
 
     /**
@@ -48,9 +50,7 @@ class ImageResizer
         ?int $height = null,
         string $watermarkPath = ''
     ): string|false {
-        // Download to a system temp file so both local and cloud disks are supported
-        $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
-        file_put_contents($tmpPath, Storage::disk($this->disk)->get($sourceFileName));
+        $tmpPath = $this->downloadStoredFileToTempPath($sourceFileName);
 
         try {
             return $this->resizeFromPath($tmpPath, $targetFileName, $width, $height, $watermarkPath);
@@ -85,60 +85,69 @@ class ImageResizer
     {
         $imagick = new \Imagick($srcPath);
 
-        if (!$imagick->valid()) {
-            throw new \Exception('Invalid image file');
-        }
-
-        if (!$imagick->getImageWidth() || !$imagick->getImageHeight()) {
-            throw new \Exception('Invalid image dimensions');
-        }
-
-        $originalWidth = $imagick->getImageWidth();
-        $originalHeight = $imagick->getImageHeight();
-
-        // If image is already smaller, don't upscale
-        $width = min($width, $originalWidth);
-
-        // Prevent zero-dimension crash
-        $resizeHeight = $height ?? intval($originalHeight * ($width / $originalWidth));
-
-        // Final safety check
-        if (!$resizeHeight || !$width) {
-            throw new \Exception("Cannot resize image with invalid dimensions: width=$width, height=$resizeHeight");
-        }
-
-        $imagick->autoOrient();
-
-        $imagick->resizeImage(
-            $width,
-            $resizeHeight,
-            \Imagick::FILTER_LANCZOS,
-            1,
-            true
-        );
-
-        if ($watermarkPath && file_exists($watermarkPath)) {
-            $this->addWatermarkImagick($imagick, $watermarkPath);
-        }
-
-        $quality = (int) config('documan.imageQuality', 90);
-        $imagick->setImageCompressionQuality($quality);
-        $imageContent = $imagick->getImageBlob();
-
-        Storage::disk($this->disk)->put($fileNameWithPath, $imageContent);
-
-        if (config('documan.outputWebp', false)) {
-            $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
-            $webpContent = $this->convertToWebp($imageContent);
-            if ($webpContent) {
-                Storage::disk($this->disk)->put($webpPath, $webpContent);
+        try {
+            if (!$imagick->valid()) {
+                throw new \Exception('Invalid image file');
             }
+
+            if (!$imagick->getImageWidth() || !$imagick->getImageHeight()) {
+                throw new \Exception('Invalid image dimensions');
+            }
+
+            $originalWidth = $imagick->getImageWidth();
+            $originalHeight = $imagick->getImageHeight();
+            $width = min($width, $originalWidth);
+            $resizeHeight = $height ?? intval($originalHeight * ($width / $originalWidth));
+
+            if (!$resizeHeight || !$width) {
+                throw new \Exception("Cannot resize image with invalid dimensions: width=$width, height=$resizeHeight");
+            }
+
+            $imagick->autoOrient();
+            $imagick->resizeImage($width, $resizeHeight, \Imagick::FILTER_LANCZOS, 1, true);
+
+            if ($watermarkPath && file_exists($watermarkPath)) {
+                $this->addWatermarkImagick($imagick, $watermarkPath);
+            }
+
+            $quality = (int) config('documan.imageQuality', 90);
+            $imagick->setImageCompressionQuality($quality);
+
+            $primaryTmp = $this->createImageTempFile($fileNameWithPath);
+
+            try {
+                $imagick->writeImage($primaryTmp);
+                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'));
+
+                if (config('documan.outputWebp', false)) {
+                    $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
+                    if ($webpPath !== null) {
+                        $webp = clone $imagick;
+                        try {
+                            $webp->setImageFormat('webp');
+                            $webp->setImageCompressionQuality($quality);
+                            $webpTmp = $this->createImageTempFile($webpPath);
+                            try {
+                                $webp->writeImage($webpTmp);
+                                Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'));
+                            } finally {
+                                @unlink($webpTmp);
+                            }
+                        } finally {
+                            $webp->clear();
+                            $webp->destroy();
+                        }
+                    }
+                }
+            } finally {
+                @unlink($primaryTmp);
+            }
+
+            return $fileNameWithPath;
+        } finally {
+            $imagick->clear();
+            $imagick->destroy();
         }
-
-        $imagick->clear();
-        $imagick->destroy();
-
-        return $fileNameWithPath;
     }
 
     protected function addWatermarkImagick(\Imagick $imagick, string $watermarkPath): void
@@ -162,11 +171,9 @@ class ImageResizer
             throw new \Exception('Invalid image dimensions.');
         }
 
-        // If image is already smaller, don't upscale
         $width = min($width, $originalWidth);
         $resizeHeight = $height ?? intval($originalHeight * ($width / $originalWidth));
 
-        // Create image resource
         $srcImage = match ($type) {
             IMAGETYPE_JPEG => imagecreatefromjpeg($srcPath),
             IMAGETYPE_PNG  => imagecreatefrompng($srcPath),
@@ -176,69 +183,116 @@ class ImageResizer
 
         $dstImage = imagecreatetruecolor($width, $resizeHeight);
 
-        // Preserve PNG transparency
-        if ($type === IMAGETYPE_PNG) {
-            imagealphablending($dstImage, false);
-            imagesavealpha($dstImage, true);
-            $transparent = imagecolorallocatealpha($dstImage, 0, 0, 0, 127);
-            imagefill($dstImage, 0, 0, $transparent);
+        try {
+            if ($type === IMAGETYPE_PNG) {
+                imagealphablending($dstImage, false);
+                imagesavealpha($dstImage, true);
+                $transparent = imagecolorallocatealpha($dstImage, 0, 0, 0, 127);
+                imagefill($dstImage, 0, 0, $transparent);
+            }
+
+            imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $width, $resizeHeight, $originalWidth, $originalHeight);
+
+            if ($watermarkPath && file_exists($watermarkPath)) {
+                $watermark = @imagecreatefrompng($watermarkPath);
+
+                if ($watermark === false) {
+                    throw new DocumanException('Failed to load watermark PNG image: ' . $watermarkPath);
+                }
+
+                try {
+                    $wmWidth = imagesx($watermark);
+                    $wmHeight = imagesy($watermark);
+                    imagecopy($dstImage, $watermark, $width - $wmWidth - 20, $resizeHeight - $wmHeight - 20, 0, 0, $wmWidth, $wmHeight);
+                } finally {
+                    imagedestroy($watermark);
+                }
+            }
+
+            $quality = (int) config('documan.imageQuality', 90);
+            $primaryTmp = $this->createImageTempFile($fileNameWithPath);
+
+            try {
+                $this->writeGdImageToPath($dstImage, $type, $primaryTmp, $quality);
+                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'));
+
+                if (config('documan.outputWebp', false) && function_exists('imagewebp')) {
+                    $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
+                    if ($webpPath !== null) {
+                        $webpTmp = $this->createImageTempFile($webpPath);
+                        try {
+                            imagewebp($dstImage, $webpTmp, 85);
+                            Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'));
+                        } finally {
+                            @unlink($webpTmp);
+                        }
+                    }
+                }
+            } finally {
+                @unlink($primaryTmp);
+            }
+
+            return $fileNameWithPath;
+        } finally {
+            imagedestroy($srcImage);
+            imagedestroy($dstImage);
+        }
+    }
+
+    protected function downloadStoredFileToTempPath(string $sourceFileName): string
+    {
+        $stream = Storage::disk($this->disk)->readStream($sourceFileName);
+
+        if ($stream === false) {
+            throw new \Exception('Unable to read source image from disk.');
         }
 
-        imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $width, $resizeHeight, $originalWidth, $originalHeight);
+        $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
+        $tmpHandle = fopen($tmpPath, 'wb');
 
-        // Add watermark if present
-        if ($watermarkPath && file_exists($watermarkPath)) {
-            $watermark = imagecreatefrompng($watermarkPath);
-            $wmWidth = imagesx($watermark);
-            $wmHeight = imagesy($watermark);
+        if ($tmpHandle === false) {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
 
-            imagecopy($dstImage, $watermark, $width - $wmWidth - 20, $resizeHeight - $wmHeight - 20, 0, 0, $wmWidth, $wmHeight);
-            imagedestroy($watermark);
+            @unlink($tmpPath);
+            throw new \Exception('Unable to create local temp file for image processing.');
         }
 
-        $quality = (int) config('documan.imageQuality', 90);
-
-        ob_start();
-        match ($type) {
-            IMAGETYPE_PNG => imagepng($dstImage, null, (int) round((100 - $quality) / 10)),
-            IMAGETYPE_GIF => imagegif($dstImage),
-            default       => imagejpeg($dstImage, null, $quality),
-        };
-        $imageContent = ob_get_clean();
-
-        imagedestroy($srcImage);
-        imagedestroy($dstImage);
-
-        Storage::disk($this->disk)->put($fileNameWithPath, $imageContent);
-
-        if (config('documan.outputWebp', false)) {
-            $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
-            $webpContent = $this->convertToWebp($imageContent);
-            if ($webpContent) {
-                Storage::disk($this->disk)->put($webpPath, $webpContent);
+        try {
+            stream_copy_to_stream($stream, $tmpHandle);
+        } finally {
+            fclose($tmpHandle);
+            if (is_resource($stream)) {
+                fclose($stream);
             }
         }
 
-        return $fileNameWithPath;
+        return $tmpPath;
     }
 
-    protected function convertToWebp(string $imageContent): string|false
+    protected function createImageTempFile(string $fileNameWithPath): string
     {
-        if (!function_exists('imagecreatefromstring') || !function_exists('imagewebp')) {
-            return false;
+        $extension = pathinfo($fileNameWithPath, PATHINFO_EXTENSION);
+        $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
+
+        if ($extension === '') {
+            return $tmpPath;
         }
 
-        $src = imagecreatefromstring($imageContent);
-        if (!$src) {
-            return false;
-        }
+        $renamedPath = $tmpPath . '.' . $extension;
+        rename($tmpPath, $renamedPath);
 
-        ob_start();
-        imagewebp($src, null, 85); // Adjust quality as needed
-        $webp = ob_get_clean();
-        imagedestroy($src);
+        return $renamedPath;
+    }
 
-        return $webp;
+    protected function writeGdImageToPath(\GdImage $image, int $type, string $path, int $quality): void
+    {
+        match ($type) {
+            IMAGETYPE_PNG => imagepng($image, $path, (int) round((100 - $quality) / 10)),
+            IMAGETYPE_GIF => imagegif($image, $path),
+            default       => imagejpeg($image, $path, $quality),
+        };
     }
 
 }

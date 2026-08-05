@@ -86,3 +86,10 @@ it('delete() soft mode moves files to the trash folder instead of deleting them'
     Storage::disk('testing')->assertExists('trash/' . $baseName);
     Storage::disk('testing')->assertExists('trash/medium_' . $baseName);
 });
+
+
+it('delete() skips missing candidates without failing', function () {
+    $documan = new Documan('testing');
+
+    expect($documan->delete('missing.jpg'))->toBeTrue();
+});

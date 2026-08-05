@@ -174,14 +174,14 @@ class Documan
             }
 
             foreach ($candidates as $candidate) {
-                if (!$disk->exists($candidate)) {
-                    continue;
-                }
-
-                if ($mode === 'soft') {
-                    $disk->move($candidate, $trashFolder . '/' . $candidate);
-                } else {
-                    $disk->delete($candidate);
+                try {
+                    if ($mode === 'soft') {
+                        $disk->move($candidate, $trashFolder . '/' . $candidate);
+                    } else {
+                        $disk->delete($candidate);
+                    }
+                } catch (\Throwable $e) {
+                    logger()->debug('Documan delete skipped missing file: ' . $candidate, ['exception' => $e]);
                 }
             }
         }

@@ -5,28 +5,11 @@ namespace Tekkenking\Documan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 trait WriteDocuman
 {
     public mixed $formFile = null;
-
-    /**
-     * MIME type → extension group map (used instead of client-supplied extension).
-     */
-    private static array $mimeToGroup = [
-        'image/jpeg'          => 'image',
-        'image/png'           => 'image',
-        'image/gif'           => 'image',
-        'image/webp'          => 'image',
-        'application/vnd.ms-excel'                                                       => 'excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'excel',
-        'text/csv'                                                                       => 'excel',
-        'application/msword'                                                             => 'document',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'document',
-        'application/vnd.ms-powerpoint'                                                  => 'powerpoint',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'powerpoint',
-        'application/pdf'                                                                => 'pdf',
-    ];
 
     /**
      * @return void
@@ -132,7 +115,7 @@ trait WriteDocuman
     {
         // Validate against actual MIME type (not client-supplied extension)
         $mimeType = $file->getMimeType();
-        $extnGroup = self::$mimeToGroup[$mimeType] ?? null;
+        $extnGroup = documan_mime_group($mimeType);
 
         if (!$extnGroup || !array_key_exists($extnGroup, $this->allowedFileExtensions)) {
             throw new DocumanException("File type '{$mimeType}' is not allowed.");
@@ -143,7 +126,7 @@ trait WriteDocuman
         $allowedExtensionsForGroup = $this->allowedFileExtensions[$extnGroup];
         if (!in_array($extension, $allowedExtensionsForGroup, true)) {
             // Fall back to a known-safe extension for this MIME type
-            $extension = $this->safeExtensionFromMime($mimeType);
+            $extension = documan_safe_extension_from_mime($mimeType);
         }
 
         $fileName = Str::random();
@@ -210,11 +193,10 @@ trait WriteDocuman
         // It is always stored synchronously so queue jobs have a source to read from.
         $baseFileName = $fileName . '.' . $extension;   // == $this->filename at this point
 
-        // Read the uploaded file content once to avoid repeated I/O in the loop.
-        $originalContent = file_get_contents($this->formFile);
+        $localSourcePath = $this->resolveLocalImageSourcePath();
 
         // Always persist the original immediately (idempotent).
-        Storage::disk($this->getDisk())->put($baseFileName, $originalContent);
+        Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'));
 
         foreach ($this->chosenSizes as $key => $size) {
             if ($key === 'original') {
@@ -245,7 +227,7 @@ trait WriteDocuman
 
                 $imageProcessor = new ImageResizer($this->getDisk());
                 $imageProcessor->resizeAndPreserveExif(
-                    $this->formFile,
+                    $localSourcePath,
                     $this->filename,
                     $size['width'],
                     $size['height']
@@ -270,24 +252,21 @@ trait WriteDocuman
         return $fileNameInSizes;
     }
 
-    private function safeExtensionFromMime(string $mimeType): string
+    private function resolveLocalImageSourcePath(): string
     {
-        $map = [
-            'image/jpeg'          => 'jpg',
-            'image/png'           => 'png',
-            'image/gif'           => 'gif',
-            'image/webp'          => 'webp',
-            'application/vnd.ms-excel'                                                       => 'xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'              => 'xlsx',
-            'text/csv'                                                                       => 'csv',
-            'application/msword'                                                             => 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'       => 'docx',
-            'application/vnd.ms-powerpoint'                                                  => 'ppt',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation'     => 'pptx',
-            'application/pdf'                                                                => 'pdf',
-        ];
+        if ($this->formFile instanceof UploadedFile) {
+            $path = $this->formFile->getRealPath();
 
-        return $map[$mimeType] ?? 'bin';
+            if ($path !== false && $path !== '') {
+                return $path;
+            }
+        }
+
+        if (is_string($this->formFile) && is_file($this->formFile)) {
+            return $this->formFile;
+        }
+
+        throw new RuntimeException('Unable to resolve a local image source path for resizing.');
     }
 
     protected function processUploadMultiple(array $files): array

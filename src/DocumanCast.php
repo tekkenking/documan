@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tekkenking\Documan;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 
 /** @implements CastsAttributes<Documan, mixed> */
@@ -87,7 +88,18 @@ class DocumanCast implements CastsAttributes
             return $value->showFileName();
         }
 
-        if (request()->hasFile($value)) {
+        if ($value instanceof UploadedFile || (is_array($value) && $this->isUploadedFileArray($value))) {
+            $documan = $this->chooseDisk(new Documan);
+            $documan->sizesInArr($this->sizes);
+            $filesArr = $documan->upload_without_request($value);
+            if (isset($filesArr['base_name'])) {
+                return $filesArr['base_name'];
+            }
+
+            $this->throwException('Oops! Sorry, DocumanCast does not support multiple file uploads! Use the direct method (documan())');
+        }
+
+        if (is_string($value) && request()->hasFile($value)) {
             $documan = $this->chooseDisk(new Documan);
             $documan->sizesInArr($this->sizes);
             $filesArr = $documan->upload(request(), $value);
@@ -96,11 +108,24 @@ class DocumanCast implements CastsAttributes
             }
 
             $this->throwException('Oops! Sorry, DocumanCast does not support multiple file uploads! Use the direct method (documan())');
-
-            // return $filesArr;
-        } else {
-            return $value ?? null;
         }
+
+        return $value ?? null;
+    }
+
+    private function isUploadedFileArray(array $value): bool
+    {
+        if ($value === []) {
+            return false;
+        }
+
+        foreach ($value as $file) {
+            if (! $file instanceof UploadedFile) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function getValueExtension($value): string
