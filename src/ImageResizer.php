@@ -38,7 +38,15 @@ class ImageResizer
         ?int $height = null,
         string $watermarkPath = ''
     ): string|false {
-        $sourcePath = $file instanceof UploadedFile ? $file->getRealPath() : $file;
+        if ($file instanceof UploadedFile) {
+            $realPath = $file->getRealPath();
+            if ($realPath === false) {
+                throw new \RuntimeException('Could not determine the real path of the uploaded file.');
+            }
+            $sourcePath = $realPath;
+        } else {
+            $sourcePath = $file;
+        }
 
         return $this->resizeFromPath($sourcePath, $fileNameWithPath, $width, $height, $watermarkPath);
     }
