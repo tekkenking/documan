@@ -97,6 +97,8 @@ class Documan
 
     private array $config = [];
 
+    private string $visibility = 'public';
+
 
     /**
      * @param string $disk
@@ -126,6 +128,9 @@ class Documan
 
             //Set default disk from config
             $this->setDisk($this->config['disk'] ?? $disk);
+
+            // Set visibility from config (defaults to 'public' if not present)
+            $this->visibility = $this->config['s3_visibility'] ?? 'public';
 
             //Are there default sizes to be uploaded at all time
             if(!empty($this->config['uploadDefaulImageSizes'])) {
@@ -174,14 +179,14 @@ class Documan
             }
 
             foreach ($candidates as $candidate) {
-                if (!$disk->exists($candidate)) {
-                    continue;
-                }
-
-                if ($mode === 'soft') {
-                    $disk->move($candidate, $trashFolder . '/' . $candidate);
-                } else {
-                    $disk->delete($candidate);
+                try {
+                    if ($mode === 'soft') {
+                        $disk->move($candidate, $trashFolder . '/' . $candidate);
+                    } else {
+                        $disk->delete($candidate);
+                    }
+                } catch (\Throwable $e) {
+                    logger()->debug('Documan delete skipped missing file: ' . $candidate, ['exception' => $e]);
                 }
             }
         }
@@ -257,6 +262,26 @@ class Documan
         return $this;
     }
 
+
+    /**
+     * Override the upload visibility at runtime.
+     *
+     * @param string $visibility  'public' or 'private'
+     * @return $this
+     */
+    public function visibility(string $visibility): static
+    {
+        $this->visibility = $visibility;
+        return $this;
+    }
+
+    /**
+     * @return string
+     */
+    public function getVisibility(): string
+    {
+        return $this->visibility;
+    }
 
     /**
      * @param string|null $disk
