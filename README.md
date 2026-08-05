@@ -315,6 +315,42 @@ By default `upload()` returns a plain PHP array. Set `defaultReturn` to `'Collec
 
 ---
 
+## S3 / Cloud File Visibility
+
+By default, files uploaded to cloud disks (such as S3) are stored as **public**, meaning they can be accessed directly via their URL. This is controlled by the `s3_visibility` config key.
+
+### Config default
+
+```php
+// config/documan.php
+'s3_visibility' => 'public',   // 'public' | 'private'
+```
+
+Set it to `'private'` to make all uploads private by default (useful when you serve files via signed URLs or a CDN).
+
+### Runtime override
+
+Use the `->visibility()` method to change visibility for a single upload without touching the config:
+
+```php
+// Upload as private for this call only
+$result = documan('my_disk')
+    ->visibility('private')
+    ->medium()
+    ->upload($request, 'document');
+
+// Upload as public (explicit, even if config is set to private)
+$result = documan('my_disk')
+    ->visibility('public')
+    ->upload($request, 'avatar');
+```
+
+The `->visibility()` call is chainable and can be placed anywhere before `->upload()`.
+
+> **Note:** Visibility is passed as an option to every `Storage::disk()->put()` call, including resized variants and WebP copies. For local disks the option is silently ignored by Laravel, so it is safe to set it globally even in mixed-disk setups.
+
+---
+
 ## Async / Queue Processing
 
 Set `queue.enabled = true` in `config/documan.php` to dispatch each resized variant as a background job. The original is always stored synchronously first so the queue job has a source image to read from.
@@ -372,6 +408,12 @@ return [
 
     // Default filesystem disk (overridden by passing a disk name to documan())
     'disk' => '',
+
+    // Visibility for files uploaded to cloud disks (e.g. S3).
+    // 'public'  — files are publicly readable (default).
+    // 'private' — files require signed URLs / server-side auth.
+    // Override per-upload with ->visibility('private').
+    's3_visibility' => 'public',
 
     // Remote CDN / host configuration
     'remote' => [
