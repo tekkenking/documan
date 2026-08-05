@@ -292,7 +292,10 @@ class ImageResizer
         return $renamedPath;
     }
 
-    protected function writeGdImageToPath(\GdImage $image, int $type, string $path, int $quality): void
+    /**
+     * @param mixed $image GD image resource (\GdImage when ext-gd is installed)
+     */
+    protected function writeGdImageToPath($image, int $type, string $path, int $quality): void
     {
         match ($type) {
             IMAGETYPE_PNG => imagepng($image, $path, (int) round((100 - $quality) / 10)),
