@@ -351,33 +351,14 @@ The `->visibility()` call is chainable and can be placed anywhere before `->uplo
 
 ---
 
-## Using S3 / DigitalOcean Spaces (Remote Disks)
+## Using Remote Disks (S3-Compatible)
 
-Documan fully supports S3-compatible remote disks. Image resizing, uploads, and display URLs all work the same way as with a local disk — you only need to point `disk` at an `s3`-driver disk.
+Documan fully supports S3-compatible remote disks. Image resizing, uploads, and display URLs all work the same way as with a local disk — you only need to point `disk` at a disk configured with the `s3` driver.
 
-### Required disk configuration
-
-Add a disk entry to `config/filesystems.php` (DigitalOcean Spaces example):
+Documan does not define or control disk configuration itself — it simply uses whatever disk you've configured in your app's `config/filesystems.php`, exactly as Laravel resolves it via `Storage::disk()`. Configure your `s3` disk following [Laravel's own filesystem documentation](https://laravel.com/docs/filesystem#s3-driver-configuration), then reference it by name:
 
 ```php
-'disks' => [
-    'spaces' => [
-        'driver'   => 's3',
-        'key'      => env('DO_SPACES_KEY'),
-        'secret'   => env('DO_SPACES_SECRET'),
-        'region'   => env('DO_SPACES_REGION'),
-        'bucket'   => env('DO_SPACES_BUCKET'),
-        'endpoint' => env('DO_SPACES_ENDPOINT'),   // e.g. https://nyc3.digitaloceanspaces.com
-        'url'      => env('DO_SPACES_URL'),        // e.g. https://your-bucket.nyc3.digitaloceanspaces.com
-        'visibility' => 'public',
-    ],
-],
-```
-
-Then use it like any other disk:
-
-```php
-$result = documan('spaces')
+$result = documan('s3')
     ->medium()
     ->small()
     ->upload($request, 'avatar');
@@ -386,14 +367,14 @@ $result = documan('spaces')
 ### How image resize behaves with a remote disk
 
 - The uploaded file itself is always read from PHP's local temp upload location — no change there.
-- The **original** and every resized **variant** are written straight to the remote disk via `Storage::disk('spaces')->put(...)`, the same code path used for local disks.
+- The **original** and every resized **variant** are written straight to the remote disk via `Storage::disk($disk)->put(...)`, the same code path used for local disks.
 - If Documan ever needs to re-read an *already stored* remote object for processing (for example when resizing from a stored file name rather than a fresh upload), the object is streamed from the disk into a secure local temp file (`tempnam()`), processed, and the temp file is deleted immediately afterwards in a `finally` block — it is never left behind.
 - Nothing assumes a local `root` path exists for the disk; disk config without a `root` key (as is the case for `s3`) works out of the box.
 
 ### Public vs private objects and URL retrieval
 
-- For **public** objects (`s3_visibility` / `->visibility('public')`), display URLs are generated with `Storage::disk('spaces')->url($path)`, which returns the disk's configured public URL (e.g. your CDN/Spaces URL) — `Storage::path()` is never used for remote disks since it has no meaning there.
-- For **private** objects, `Storage::disk('spaces')->url()` will return a signed/private URL only if your driver supports it; otherwise generate a temporary URL yourself (e.g. `Storage::disk('spaces')->temporaryUrl($path, now()->addMinutes(5))`) and pass it through `->plain()`.
+- For **public** objects (`s3_visibility` / `->visibility('public')`), display URLs are generated with `Storage::disk($disk)->url($path)`, which returns the disk's configured public URL — `Storage::path()` is never used for remote disks since it has no meaning there.
+- For **private** objects, `Storage::disk($disk)->url()` will return a signed/private URL only if your driver supports it; otherwise generate a temporary URL yourself (e.g. `Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(5))`) and pass it through `->plain()`.
 - `show()`/`localPath()` and the `paths` key in `upload()`'s return value are local-disk concepts. On a remote disk, `localPath()` (the read-side helper) falls back to the disk URL instead of a filesystem path, while the upload-side `paths` key stays `null` (there is no local root to report) — use the `links` key for the public URL instead.
 
 ---
