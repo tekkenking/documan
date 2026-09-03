@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tekkenking\Documan;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 trait ReadDocuman
@@ -60,14 +61,34 @@ trait ReadDocuman
         }
 
         $this->isDiskSet();
-        $fileSystemDisk = $this->getFileSystemDisk($this->getDisk());
+        $disk = $this->getDisk();
 
-        if (!file_exists($fileSystemDisk['root'] . '/' . $fileNameBySize)) {
+        if ($this->isLocalDisk($disk)) {
+            $fileSystemDisk = $this->getFileSystemDisk($disk);
+
+            if (!file_exists($fileSystemDisk['root'] . '/' . $fileNameBySize)) {
+                // Supporting those files without the size prefix in their naming
+                $fileNameBySize = $fileName;
+            }
+
+            $this->_arrayFileNames($onlyFileName, $fileSystemDisk, $fileNameBySize);
+
+            return $this;
+        }
+
+        // Remote/S3-compatible disk (e.g. DigitalOcean Spaces) — never assume
+        // a local 'root' path exists. Resolve the public URL through the
+        // disk's own driver instead of touching the local filesystem.
+        if (!Storage::disk($disk)->exists($fileNameBySize)) {
             // Supporting those files without the size prefix in their naming
             $fileNameBySize = $fileName;
         }
 
-        $this->_arrayFileNames($onlyFileName, $fileSystemDisk, $fileNameBySize);
+        if ($onlyFileName) {
+            $this->arrFilesToShow[] = $fileNameBySize;
+        } else {
+            $this->arrFilesToShow[] = Storage::disk($disk)->url($fileNameBySize);
+        }
 
         return $this;
     }
@@ -142,6 +163,15 @@ trait ReadDocuman
         return $map[$ext] ?? 'application/octet-stream';
     }
 
+    /**
+     * Resolve the "local" path/URL for a given size variant.
+     *
+     * For local disks this returns an actual filesystem path (existing
+     * behaviour, unchanged). For remote/S3-compatible disks (e.g.
+     * DigitalOcean Spaces) there is no local filesystem path — instead the
+     * disk's public URL is returned via Storage::disk($disk)->url(), since
+     * Storage::path() is not meaningful for remote drivers.
+     */
     public function localPath($size): string
     {
         if (Str::startsWith($this->showFile, 'http')) {
@@ -149,7 +179,17 @@ trait ReadDocuman
         }
 
         $fileName = $size.'_'.$this->showFile;
-        $fileSystemDisk = $this->getFileSystemDisk($this->getDisk());
+        $disk = $this->getDisk();
+
+        if (!$this->isLocalDisk($disk)) {
+            if (!Storage::disk($disk)->exists($fileName)) {
+                $fileName = $this->showFile;
+            }
+
+            return Storage::disk($disk)->url($fileName);
+        }
+
+        $fileSystemDisk = $this->getFileSystemDisk($disk);
         $localFile = $fileSystemDisk['root'].'/'.$fileName;
 
         if (! file_exists($localFile)) {

@@ -319,6 +319,25 @@ class Documan
         return config('filesystems.disks.'.$disk);
     }
 
+    /**
+     * Determine whether the given disk is backed by the local filesystem
+     * driver. Remote/S3-compatible disks (e.g. DigitalOcean Spaces) do not
+     * expose a local 'root' path and must never be treated as if they did.
+     *
+     * @param string|null $disk
+     * @return bool
+     */
+    protected function isLocalDisk(?string $disk): bool
+    {
+        if (!$disk) {
+            return false;
+        }
+
+        $driver = config('filesystems.disks.'.$disk.'.driver');
+
+        return $driver === 'local';
+    }
+
 
     /**
      * @param $onlyFileName
@@ -376,8 +395,17 @@ class Documan
      */
     protected function prepareStoragePath(): void
     {
-        //$path = config('filesystems.disks.'.$this->getDisk().'.root');
-        $path = $this->getFileSystemDisk($this->getDisk())['root'];
+        // Remote/S3-compatible disks (e.g. DigitalOcean Spaces) have no local
+        // 'root' directory to create — nothing to prepare in that case.
+        if (!$this->isLocalDisk($this->getDisk())) {
+            return;
+        }
+
+        $path = $this->getFileSystemDisk($this->getDisk())['root'] ?? null;
+
+        if (!$path) {
+            return;
+        }
 
         if(!File::isDirectory($path)){
             File::makeDirectory($path, 0777, true, true);

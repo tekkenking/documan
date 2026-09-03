@@ -93,3 +93,84 @@ it('delete() skips missing candidates without failing', function () {
 
     expect($documan->delete('missing.jpg'))->toBeTrue();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Image resize — local vs remote (S3-compatible) disks
+|--------------------------------------------------------------------------
+*/
+
+it('resizes and stores an uploaded image on a local disk without throwing', function () {
+    $file = UploadedFile::fake()->image('avatar.jpg', 200, 200);
+
+    $documan = new Documan('testing');
+    $result  = $documan->small()->upload_without_request($file);
+
+    expect($result['fileType'])->toBe('image');
+    expect($result['variations'])->toHaveKeys(['original', 'small']);
+
+    Storage::disk('testing')->assertExists($result['base_name']);
+    Storage::disk('testing')->assertExists($result['variations']['small']);
+});
+
+it('resizes and stores an uploaded image on a remote (S3-compatible) disk without a local-path error', function () {
+    config()->set('documan', array_merge(
+        require __DIR__ . '/../../config/documan.php',
+        ['disk' => 'spaces']
+    ));
+    config()->set('filesystems.disks.spaces', [
+        'driver'     => 's3',
+        'key'        => 'test-key',
+        'secret'     => 'test-secret',
+        'region'     => 'us-east-1',
+        'bucket'     => 'test-bucket',
+        'endpoint'   => 'https://nyc3.digitaloceanspaces.com',
+        'url'        => 'https://test-bucket.nyc3.digitaloceanspaces.com',
+        'visibility' => 'public',
+    ]);
+    Storage::fake('spaces');
+
+    // Storage::fake() swaps the resolved filesystem instance, but must not
+    // rewrite the disk's config — isLocalDisk() reads config directly, so
+    // this guards against a Laravel version regressing that guarantee and
+    // silently turning this into a local-disk test.
+    expect(config('filesystems.disks.spaces.driver'))->toBe('s3');
+
+    $file = UploadedFile::fake()->image('avatar.jpg', 200, 200);
+
+    $documan = new Documan('spaces');
+    $result  = $documan->small()->upload_without_request($file);
+
+    expect($result['fileType'])->toBe('image');
+    expect($result['variations'])->toHaveKeys(['original', 'small']);
+
+    Storage::disk('spaces')->assertExists($result['base_name']);
+    Storage::disk('spaces')->assertExists($result['variations']['small']);
+});
+
+it('show() resolves a public URL via Storage::disk()->url() for a remote disk instead of a local path', function () {
+    config()->set('documan', array_merge(
+        require __DIR__ . '/../../config/documan.php',
+        ['disk' => 'spaces']
+    ));
+    config()->set('filesystems.disks.spaces', [
+        'driver'     => 's3',
+        'key'        => 'test-key',
+        'secret'     => 'test-secret',
+        'region'     => 'us-east-1',
+        'bucket'     => 'test-bucket',
+        'endpoint'   => 'https://nyc3.digitaloceanspaces.com',
+        'url'        => 'https://test-bucket.nyc3.digitaloceanspaces.com',
+        'visibility' => 'public',
+    ]);
+    Storage::fake('spaces');
+
+    expect(config('filesystems.disks.spaces.driver'))->toBe('s3');
+
+    Storage::disk('spaces')->put('small_abc123.jpg', 'fake-image-data');
+
+    $documan = new Documan('spaces');
+    $url     = $documan->show('abc123.jpg')->small()->first();
+
+    expect($url)->toBe(Storage::disk('spaces')->url('small_abc123.jpg'));
+});

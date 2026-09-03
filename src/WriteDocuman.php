@@ -3,6 +3,7 @@
 namespace Tekkenking\Documan;
 
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -193,82 +194,160 @@ trait WriteDocuman
         // It is always stored synchronously so queue jobs have a source to read from.
         $baseFileName = $fileName . '.' . $extension;   // == $this->filename at this point
 
-        $localSourcePath = $this->resolveLocalImageSourcePath();
+        [$localSourcePath, $isTempSourcePath] = $this->resolveLocalImageSourcePath();
 
-        // Always persist the original immediately (idempotent).
-        Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'), ['visibility' => $this->getVisibility()]);
+        try {
+            // Always persist the original immediately (idempotent).
+            Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'), ['visibility' => $this->getVisibility()]);
 
-        foreach ($this->chosenSizes as $key => $size) {
-            if ($key === 'original') {
-                // Original is already stored above as the plain base_name.
-                $this->filename = $baseFileName;
-            } elseif ($queueEnabled) {
-                $this->filename = $key . '_' . $fileName . '.' . $extension;
+            foreach ($this->chosenSizes as $key => $size) {
+                if ($key === 'original') {
+                    // Original is already stored above as the plain base_name.
+                    $this->filename = $baseFileName;
+                } elseif ($queueEnabled) {
+                    $this->filename = $key . '_' . $fileName . '.' . $extension;
 
-                $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
-                    disk: $this->getDisk(),
-                    sourceFileName: $baseFileName,   // plain base_name, no prefix
-                    targetFileName: $this->filename,
-                    width: $size['width'],
-                    height: $size['height'],
-                    visibility: $this->getVisibility(),
-                );
+                    $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
+                        disk: $this->getDisk(),
+                        sourceFileName: $baseFileName,   // plain base_name, no prefix
+                        targetFileName: $this->filename,
+                        width: $size['width'],
+                        height: $size['height'],
+                        visibility: $this->getVisibility(),
+                    );
 
-                if ($queueConnection) {
-                    $job->onConnection($queueConnection);
+                    if ($queueConnection) {
+                        $job->onConnection($queueConnection);
+                    }
+
+                    if ($queueName) {
+                        $job->onQueue($queueName);
+                    }
+
+                    dispatch($job);
+                } else {
+                    $this->filename = $key . '_' . $fileName . '.' . $extension;
+
+                    $imageProcessor = new ImageResizer($this->getDisk());
+                    $imageProcessor->setVisibility($this->getVisibility());
+                    $imageProcessor->resizeAndPreserveExif(
+                        $localSourcePath,
+                        $this->filename,
+                        $size['width'],
+                        $size['height']
+                    );
                 }
 
-                if ($queueName) {
-                    $job->onQueue($queueName);
+                $fileNameInSizes['variations'][$key] = $this->filename;
+
+                if ($this->returnResultWithLinks) {
+                    $fileNameInSizes['links'][$key] = ($this->linkPath)
+                        ? $this->linkPath . '/' . $this->filename
+                        : null;
                 }
 
-                dispatch($job);
-            } else {
-                $this->filename = $key . '_' . $fileName . '.' . $extension;
-
-                $imageProcessor = new ImageResizer($this->getDisk());
-                $imageProcessor->setVisibility($this->getVisibility());
-                $imageProcessor->resizeAndPreserveExif(
-                    $localSourcePath,
-                    $this->filename,
-                    $size['width'],
-                    $size['height']
-                );
+                if ($this->returnResultWithPaths) {
+                    $fileNameInSizes['paths'][$key] = ($this->localPath)
+                        ? $this->localPath . '/' . $this->filename
+                        : null;
+                }
             }
-
-            $fileNameInSizes['variations'][$key] = $this->filename;
-
-            if ($this->returnResultWithLinks) {
-                $fileNameInSizes['links'][$key] = ($this->linkPath)
-                    ? $this->linkPath . '/' . $this->filename
-                    : null;
-            }
-
-            if ($this->returnResultWithPaths) {
-                $fileNameInSizes['paths'][$key] = ($this->localPath)
-                    ? $this->localPath . '/' . $this->filename
-                    : null;
+        } finally {
+            // Only clean up temp files that we materialized from a remote
+            // disk. Locally-uploaded files (UploadedFile tmp paths, or
+            // caller-provided local paths) are left untouched — their
+            // lifecycle is not owned by us.
+            if ($isTempSourcePath) {
+                @unlink($localSourcePath);
             }
         }
 
         return $fileNameInSizes;
     }
 
-    private function resolveLocalImageSourcePath(): string
+    /**
+     * Resolve a local filesystem path that can be handed to the image
+     * resizer. Supports:
+     *
+     *  - an UploadedFile (its PHP tmp upload path is always local)
+     *  - an already-local absolute path (string, existing file)
+     *  - an object key on a remote/S3-compatible disk (e.g. DigitalOcean
+     *    Spaces) — the object is streamed to a secure local temp file so it
+     *    can be processed by the resizer.
+     *
+     * @return array{0: string, 1: bool} [$localPath, $isTemporaryFile]
+     */
+    private function resolveLocalImageSourcePath(): array
     {
         if ($this->formFile instanceof UploadedFile) {
             $path = $this->formFile->getRealPath();
 
             if ($path !== false && $path !== '') {
-                return $path;
+                return [$path, false];
             }
         }
 
         if (is_string($this->formFile) && is_file($this->formFile)) {
-            return $this->formFile;
+            return [$this->formFile, false];
         }
 
-        throw new RuntimeException('Unable to resolve a local image source path for resizing.');
+        // Not a local file — if we have a disk configured and the value
+        // looks like a valid object key/path, try to fetch it from the
+        // configured (potentially remote) disk.
+        if (is_string($this->formFile) && $this->formFile !== '' && $this->getDisk()) {
+            $disk = $this->getDisk();
+
+            try {
+                $stream = Storage::disk($disk)->readStream($this->formFile);
+            } catch (\Throwable $e) {
+                $stream = null;
+            }
+
+            if (is_resource($stream)) {
+                $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
+
+                if ($tmpPath === false) {
+                    fclose($stream);
+                    throw new RuntimeException(
+                        "Unable to create a secure local temp file for image resizing (disk: {$disk})."
+                    );
+                }
+
+                $tmpHandle = fopen($tmpPath, 'wb');
+
+                if ($tmpHandle === false) {
+                    fclose($stream);
+                    @unlink($tmpPath);
+                    throw new RuntimeException(
+                        "Unable to write remote image contents to a local temp file (disk: {$disk})."
+                    );
+                }
+
+                try {
+                    $bytesCopied = stream_copy_to_stream($stream, $tmpHandle);
+                } finally {
+                    fclose($tmpHandle);
+                    fclose($stream);
+                }
+
+                if ($bytesCopied === false || $bytesCopied === 0) {
+                    @unlink($tmpPath);
+
+                    throw new RuntimeException(
+                        "Failed to copy remote image contents to a local temp file for resizing (disk: {$disk})."
+                    );
+                }
+
+                return [$tmpPath, true];
+            }
+        }
+
+        $sourceType = is_object($this->formFile) ? get_class($this->formFile) : gettype($this->formFile);
+
+        throw new RuntimeException(
+            'Unable to resolve a local image source path for resizing '
+            . "(disk: " . ($this->getDisk() ?? 'none') . ", source type: {$sourceType})."
+        );
     }
 
     protected function processUploadMultiple(array $files): array
