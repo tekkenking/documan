@@ -18,13 +18,19 @@ if(! function_exists('documan_collections')) {
 if (!function_exists('convertImageToBase64')) {
 
     /**
-     * @param $imagePath
-     * @param $size
+     * @param mixed $imagePath
+     * @param string $size
      * @return string
      */
     function convertImageToBase64($imagePath, $size = 'original'): string
     {
-        return base64_encode(file_get_contents($imagePath->localPath($size)));
+        $resolvedPath = is_object($imagePath) && method_exists($imagePath, 'localPath')
+            ? $imagePath->localPath($size)
+            : (string) $imagePath;
+
+        $contents = @file_get_contents($resolvedPath);
+
+        return $contents === false ? '' : base64_encode($contents);
     }
 }
 
