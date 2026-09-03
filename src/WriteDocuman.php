@@ -324,10 +324,18 @@ trait WriteDocuman
                 }
 
                 try {
-                    stream_copy_to_stream($stream, $tmpHandle);
+                    $bytesCopied = stream_copy_to_stream($stream, $tmpHandle);
                 } finally {
                     fclose($tmpHandle);
                     fclose($stream);
+                }
+
+                if ($bytesCopied === false || $bytesCopied === 0) {
+                    @unlink($tmpPath);
+
+                    throw new RuntimeException(
+                        "Failed to copy remote image contents to a local temp file for resizing (disk: {$disk})."
+                    );
                 }
 
                 return [$tmpPath, true];

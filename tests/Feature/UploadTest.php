@@ -130,6 +130,12 @@ it('resizes and stores an uploaded image on a remote (S3-compatible) disk withou
     ]);
     Storage::fake('spaces');
 
+    // Storage::fake() swaps the resolved filesystem instance, but must not
+    // rewrite the disk's config — isLocalDisk() reads config directly, so
+    // this guards against a Laravel version regressing that guarantee and
+    // silently turning this into a local-disk test.
+    expect(config('filesystems.disks.spaces.driver'))->toBe('s3');
+
     $file = UploadedFile::fake()->image('avatar.jpg', 200, 200);
 
     $documan = new Documan('spaces');
@@ -158,6 +164,8 @@ it('show() resolves a public URL via Storage::disk()->url() for a remote disk in
         'visibility' => 'public',
     ]);
     Storage::fake('spaces');
+
+    expect(config('filesystems.disks.spaces.driver'))->toBe('s3');
 
     Storage::disk('spaces')->put('small_abc123.jpg', 'fake-image-data');
 
