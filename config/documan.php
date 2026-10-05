@@ -13,6 +13,13 @@ return [
      */
     's3_visibility' => 'public',
 
+    /**
+     * Expiry time (in minutes) for temporary/signed URLs on private remote disks.
+     * Only used when s3_visibility is set to 'private' or ->visibility('private') is called.
+     * Default: 1440 (24 hours)
+     */
+    's3_url_expiry' => 1440,
+
     'remote' => [
         'host_url' => '',
         'disk' => '',
