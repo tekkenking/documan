@@ -87,7 +87,28 @@ trait ReadDocuman
         if ($onlyFileName) {
             $this->arrFilesToShow[] = $fileNameBySize;
         } else {
-            $this->arrFilesToShow[] = Storage::disk($disk)->url($fileNameBySize);
+            // For private files on remote disks, generate a signed URL
+            $url = Storage::disk($disk)->url($fileNameBySize);
+            
+            if ($this->getVisibility() === 'private') {
+                try {
+                    $expiry = $this->config['s3_url_expiry'] ?? 1440;
+                    $url = Storage::disk($disk)->temporaryUrl(
+                        $fileNameBySize,
+                        now()->addMinutes($expiry)
+                    );
+                } catch (\Exception $e) {
+                    // If temporaryUrl fails (e.g., driver doesn't support it),
+                    // fall back to the regular URL and log the issue
+                    logger()->warning('Documan: Failed to generate temporary URL for private file', [
+                        'disk' => $disk,
+                        'file' => $fileNameBySize,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+            
+            $this->arrFilesToShow[] = $url;
         }
 
         return $this;
@@ -169,8 +190,8 @@ trait ReadDocuman
      * For local disks this returns an actual filesystem path (existing
      * behaviour, unchanged). For remote/S3-compatible disks (e.g.
      * DigitalOcean Spaces) there is no local filesystem path — instead the
-     * disk's public URL is returned via Storage::disk($disk)->url(), since
-     * Storage::path() is not meaningful for remote drivers.
+     * disk's public URL is returned via Storage::disk($disk)->url(), or a
+     * temporary signed URL if the file is private.
      */
     public function localPath($size): string
     {
@@ -186,7 +207,26 @@ trait ReadDocuman
                 $fileName = $this->showFile;
             }
 
-            return Storage::disk($disk)->url($fileName);
+            $url = Storage::disk($disk)->url($fileName);
+            
+            // For private files on remote disks, generate a signed URL
+            if ($this->getVisibility() === 'private') {
+                try {
+                    $expiry = $this->config['s3_url_expiry'] ?? 1440;
+                    $url = Storage::disk($disk)->temporaryUrl(
+                        $fileName,
+                        now()->addMinutes($expiry)
+                    );
+                } catch (\Exception $e) {
+                    logger()->warning('Documan: Failed to generate temporary URL for private file in localPath', [
+                        'disk' => $disk,
+                        'file' => $fileName,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+            
+            return $url;
         }
 
         $fileSystemDisk = $this->getFileSystemDisk($disk);
