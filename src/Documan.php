@@ -159,7 +159,7 @@ class Documan
      * @param string|array $baseName The base_name returned by upload()
      * @return bool
      */
-    public function delete(string|array $baseName): bool
+    public function delete(string|array $baseName, array $additionalSizes = []): bool
     {
         $this->isDiskSet();
         $disk = Storage::disk($this->getDisk());
@@ -167,14 +167,30 @@ class Documan
 
         $mode        = $this->config['delete']['mode'] ?? 'hard';
         $trashFolder = trim($this->config['delete']['trash_folder'] ?? 'trash', '/');
+        $sizes       = array_unique(array_merge(array_keys($this->defaultSizes), $additionalSizes));
+
+        foreach (explode('/', $trashFolder) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..' || str_contains($segment, '\\')) {
+                throw new DocumanException('The configured trash folder is invalid.');
+            }
+        }
 
         foreach ($baseNames as $name) {
+            if (!is_string($name)) {
+                throw new DocumanException('File names must be strings.');
+            }
+            $this->assertSafeStorageFileName($name);
+
             // Candidates:
             //   $name            — current: base_name IS the original (no prefix)
             //   'original_'.$name — legacy: original stored with prefix
             //   '{size}_'.$name  — all resized variants
             $candidates = [$name, 'original_' . $name];
-            foreach (array_keys($this->defaultSizes) as $size) {
+            foreach ($sizes as $size) {
+                if (!is_string($size)) {
+                    throw new DocumanException('Size names must be strings.');
+                }
+                $this->assertSafeStorageFileName($size);
                 $candidates[] = $size . '_' . $name;
             }
 
@@ -338,6 +354,23 @@ class Documan
         return $driver === 'local';
     }
 
+    /**
+     * Ensure a storage key is a single safe filename rather than a path.
+     */
+    protected function assertSafeStorageFileName(string $name): void
+    {
+        if (
+            $name === ''
+            || $name === '.'
+            || $name === '..'
+            || str_contains($name, '/')
+            || str_contains($name, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/', $name)
+        ) {
+            throw new DocumanException('File names must be plain file names without path segments.');
+        }
+    }
+
 
     /**
      * @param $onlyFileName
@@ -408,7 +441,7 @@ class Documan
         }
 
         if(!File::isDirectory($path)){
-            File::makeDirectory($path, 0777, true, true);
+            File::makeDirectory($path, 0755, true, true);
         }
 
     }

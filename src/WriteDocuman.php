@@ -2,7 +2,6 @@
 
 namespace Tekkenking\Documan;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -79,21 +78,85 @@ trait WriteDocuman
 
     public function move(string|array $fileName, string $source_disk): array
     {
-        $sourcePath = $this->getFileSystemDisk($source_disk)['root'];
+        $this->isDiskSet();
+        $names = is_array($fileName) ? $fileName : [$fileName];
+        $sourceDisk = Storage::disk($source_disk);
+        $temporaryFiles = [];
 
-        if (! is_array($fileName)) {
-            $name = $this->buildFileToBeMoved($fileName, $sourcePath);
-            $this->checkMovingFileIfExist($name);
-        } else {
-            $name = [];
-            foreach ($fileName as $file) {
-                $nx = $this->buildFileToBeMoved($file, $sourcePath);
-                $this->checkMovingFileIfExist($nx);
-                $name[] = $nx;
+        try {
+            $files = [];
+            foreach ($names as $name) {
+                if (!is_string($name)) {
+                    throw new DocumanException('File names must be strings.');
+                }
+                $this->assertSafeStorageFileName($name);
+
+                try {
+                    $stream = $sourceDisk->readStream($name);
+                } catch (\Throwable) {
+                    $stream = false;
+                }
+
+                if (!is_resource($stream)) {
+                    try {
+                        $stream = $sourceDisk->readStream('original_' . $name);
+                    } catch (\Throwable) {
+                        $stream = false;
+                    }
+                }
+
+                if (!is_resource($stream)) {
+                    throw new DocumanException("Unable to read '{$name}' from the source disk.");
+                }
+
+                $temporaryPath = tempnam(sys_get_temp_dir(), 'documan_move_');
+                if ($temporaryPath === false) {
+                    fclose($stream);
+                    throw new RuntimeException('Unable to create a temporary file for moving.');
+                }
+                $temporaryFiles[] = $temporaryPath;
+
+                $temporaryStream = fopen($temporaryPath, 'wb');
+                if ($temporaryStream === false) {
+                    fclose($stream);
+                    throw new RuntimeException('Unable to write the temporary file for moving.');
+                }
+
+                $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
+                $copyLength = $maxUploadSize > 0 && $maxUploadSize < PHP_INT_MAX
+                    ? $maxUploadSize + 1
+                    : null;
+
+                try {
+                    $bytesCopied = stream_copy_to_stream($stream, $temporaryStream, $copyLength);
+                } finally {
+                    fclose($temporaryStream);
+                    fclose($stream);
+                }
+
+                if ($bytesCopied === false || $bytesCopied === 0) {
+                    throw new DocumanException("Unable to copy '{$name}' from the source disk.");
+                }
+                if ($maxUploadSize > 0 && $bytesCopied > $maxUploadSize) {
+                    throw new DocumanException('The file exceeds the configured maximum upload size.');
+                }
+
+                $mimeType = mime_content_type($temporaryPath) ?: 'application/octet-stream';
+                $files[] = new UploadedFile(
+                    $temporaryPath,
+                    $name,
+                    $mimeType,
+                    UPLOAD_ERR_OK,
+                    true
+                );
+            }
+
+            return $this->processUpload(is_array($fileName) ? $files : ($files[0] ?? null));
+        } finally {
+            foreach ($temporaryFiles as $temporaryPath) {
+                @unlink($temporaryPath);
             }
         }
-
-        return $this->processUpload($name);
     }
 
     protected function processUpload($file): array
@@ -114,8 +177,21 @@ trait WriteDocuman
 
     protected function processUploadSingle($file): array
     {
+        if (!$file instanceof UploadedFile) {
+            throw new DocumanException('Only uploaded files can be processed.');
+        }
+
+        $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
+        $fileSize = $file->getSize();
+        if ($maxUploadSize > 0 && ($fileSize === false || $fileSize > $maxUploadSize)) {
+            throw new DocumanException('The file exceeds the configured maximum upload size.');
+        }
+
         // Validate against actual MIME type (not client-supplied extension)
         $mimeType = $file->getMimeType();
+        if (!is_string($mimeType) || $mimeType === '') {
+            throw new DocumanException('Unable to determine the uploaded file type.');
+        }
         $extnGroup = documan_mime_group($mimeType);
 
         if (!$extnGroup || !array_key_exists($extnGroup, $this->allowedFileExtensions)) {
@@ -163,8 +239,7 @@ trait WriteDocuman
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
-        Storage::disk($this->getDisk())
-            ->put($this->filename, file_get_contents($this->formFile), ['visibility' => $this->getVisibility()]);
+        $this->putFileFromPath($this->formFile->getRealPath(), $this->filename);
 
         if ($this->returnResultWithLinks) {
             $fileNameInSizes['link'] = ($this->linkPath)
@@ -198,7 +273,7 @@ trait WriteDocuman
 
         try {
             // Always persist the original immediately (idempotent).
-            Storage::disk($this->getDisk())->put($baseFileName, fopen($localSourcePath, 'rb'), ['visibility' => $this->getVisibility()]);
+            $this->putFileFromPath($localSourcePath, $baseFileName);
 
             foreach ($this->chosenSizes as $key => $size) {
                 if ($key === 'original') {
@@ -359,5 +434,26 @@ trait WriteDocuman
 
         return $fileNames;
     }
-}
 
+    private function putFileFromPath(string|false $path, string $targetFileName): void
+    {
+        if ($path === false) {
+            throw new RuntimeException('Unable to determine the source file path.');
+        }
+
+        $stream = fopen($path, 'rb');
+        if ($stream === false) {
+            throw new RuntimeException('Unable to open the source file.');
+        }
+
+        try {
+            Storage::disk($this->getDisk())->put(
+                $targetFileName,
+                $stream,
+                ['visibility' => $this->getVisibility()]
+            );
+        } finally {
+            fclose($stream);
+        }
+    }
+}

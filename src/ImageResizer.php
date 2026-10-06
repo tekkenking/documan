@@ -83,6 +83,8 @@ class ImageResizer
         ?int $height,
         string $watermarkPath
     ): string|false {
+        $this->validateResizeDimensions($srcPath, $width, $height);
+
         try {
             if ($this->useImagick) {
                 return $this->processWithImagick($srcPath, $fileNameWithPath, $width, $height, $watermarkPath);
@@ -131,7 +133,7 @@ class ImageResizer
 
             try {
                 $imagick->writeImage($primaryTmp);
-                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'), ['visibility' => $this->visibility]);
+                $this->putTempFile($primaryTmp, $fileNameWithPath);
 
                 if (config('documan.outputWebp', false)) {
                     $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
@@ -143,7 +145,7 @@ class ImageResizer
                             $webpTmp = $this->createImageTempFile($webpPath);
                             try {
                                 $webp->writeImage($webpTmp);
-                                Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'), ['visibility' => $this->visibility]);
+                                $this->putTempFile($webpTmp, $webpPath);
                             } finally {
                                 @unlink($webpTmp);
                             }
@@ -192,13 +194,16 @@ class ImageResizer
             IMAGETYPE_JPEG => imagecreatefromjpeg($srcPath),
             IMAGETYPE_PNG  => imagecreatefrompng($srcPath),
             IMAGETYPE_GIF  => imagecreatefromgif($srcPath),
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp')
+                ? imagecreatefromwebp($srcPath)
+                : throw new \Exception('WebP images are not supported by this GD installation.'),
             default        => throw new \Exception('Unsupported image type.')
         };
 
         $dstImage = imagecreatetruecolor($width, $resizeHeight);
 
         try {
-            if ($type === IMAGETYPE_PNG) {
+            if ($type === IMAGETYPE_PNG || $type === IMAGETYPE_WEBP) {
                 imagealphablending($dstImage, false);
                 imagesavealpha($dstImage, true);
                 $transparent = imagecolorallocatealpha($dstImage, 0, 0, 0, 127);
@@ -228,7 +233,7 @@ class ImageResizer
 
             try {
                 $this->writeGdImageToPath($dstImage, $type, $primaryTmp, $quality);
-                Storage::disk($this->disk)->put($fileNameWithPath, fopen($primaryTmp, 'rb'), ['visibility' => $this->visibility]);
+                $this->putTempFile($primaryTmp, $fileNameWithPath);
 
                 if (config('documan.outputWebp', false) && function_exists('imagewebp')) {
                     $webpPath = preg_replace('/\.\w+$/', '.webp', $fileNameWithPath);
@@ -236,7 +241,7 @@ class ImageResizer
                         $webpTmp = $this->createImageTempFile($webpPath);
                         try {
                             imagewebp($dstImage, $webpTmp, 85);
-                            Storage::disk($this->disk)->put($webpPath, fopen($webpTmp, 'rb'), ['visibility' => $this->visibility]);
+                            $this->putTempFile($webpTmp, $webpPath);
                         } finally {
                             @unlink($webpTmp);
                         }
@@ -262,6 +267,12 @@ class ImageResizer
         }
 
         $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
+        if ($tmpPath === false) {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+            throw new \Exception('Unable to create local temp file for image processing.');
+        }
         $tmpHandle = fopen($tmpPath, 'wb');
 
         if ($tmpHandle === false) {
@@ -274,7 +285,9 @@ class ImageResizer
         }
 
         try {
-            stream_copy_to_stream($stream, $tmpHandle);
+            if (stream_copy_to_stream($stream, $tmpHandle) === false) {
+                throw new \Exception('Unable to copy source image to a local temp file.');
+            }
         } finally {
             fclose($tmpHandle);
             if (is_resource($stream)) {
@@ -295,9 +308,58 @@ class ImageResizer
         }
 
         $renamedPath = $tmpPath . '.' . $extension;
-        rename($tmpPath, $renamedPath);
+        if (!rename($tmpPath, $renamedPath)) {
+            @unlink($tmpPath);
+            throw new \RuntimeException('Unable to create image output temp file.');
+        }
 
         return $renamedPath;
+    }
+
+    protected function validateResizeDimensions(string $sourcePath, int $width, ?int $height): void
+    {
+        if ($width <= 0 || ($height !== null && $height <= 0)) {
+            throw new \InvalidArgumentException('Image resize dimensions must be positive.');
+        }
+
+        $dimensions = @getimagesize($sourcePath);
+        if ($dimensions === false || $dimensions[0] <= 0 || $dimensions[1] <= 0) {
+            throw new \Exception('Invalid image file or dimensions.');
+        }
+
+        $maxPixels = (int) config('documan.maxImagePixels', 40000000);
+        if ($maxPixels <= 0) {
+            return;
+        }
+
+        [$sourceWidth, $sourceHeight] = $dimensions;
+        if ($sourceWidth > intdiv($maxPixels, $sourceHeight)) {
+            throw new \Exception('Source image exceeds the configured maximum pixel count.');
+        }
+
+        $targetWidth = min($width, $sourceWidth);
+        $targetHeight = $height ?? max(1, (int) round($sourceHeight * ($targetWidth / $sourceWidth)));
+        if ($targetWidth > intdiv($maxPixels, $targetHeight)) {
+            throw new \Exception('Resized image exceeds the configured maximum pixel count.');
+        }
+    }
+
+    private function putTempFile(string $path, string $targetFileName): void
+    {
+        $stream = fopen($path, 'rb');
+        if ($stream === false) {
+            throw new \RuntimeException('Unable to open the processed image file.');
+        }
+
+        try {
+            Storage::disk($this->disk)->put(
+                $targetFileName,
+                $stream,
+                ['visibility' => $this->visibility]
+            );
+        } finally {
+            fclose($stream);
+        }
     }
 
     /**
@@ -308,6 +370,7 @@ class ImageResizer
         match ($type) {
             IMAGETYPE_PNG => imagepng($image, $path, (int) round((100 - $quality) / 10)),
             IMAGETYPE_GIF => imagegif($image, $path),
+            IMAGETYPE_WEBP => imagewebp($image, $path, $quality),
             default       => imagejpeg($image, $path, $quality),
         };
     }

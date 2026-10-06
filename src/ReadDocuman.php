@@ -52,6 +52,8 @@ trait ReadDocuman
             return $this;
         }
 
+        $this->assertSafeStorageFileName((string) $fileName);
+        $this->assertSafeStorageFileName((string) $size);
         $fileNameBySize = $size.'_'.$fileName;
 
         if ($this->remoteHost) {
@@ -193,12 +195,15 @@ trait ReadDocuman
      * disk's public URL is returned via Storage::disk($disk)->url(), or a
      * temporary signed URL if the file is private.
      */
-    public function localPath($size): string
+    public function localPath(string|int $size): string
     {
         if (Str::startsWith($this->showFile, 'http')) {
             return $this->showFile;
         }
 
+        $this->isDiskSet();
+        $this->assertSafeStorageFileName($this->showFile ?? '');
+        $this->assertSafeStorageFileName((string) $size);
         $fileName = $size.'_'.$this->showFile;
         $disk = $this->getDisk();
 

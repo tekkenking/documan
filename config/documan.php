@@ -60,6 +60,16 @@ return [
     'outputWebp' => false,
 
     /**
+     * Maximum accepted upload size in bytes; set to 0 to disable the limit.
+     */
+    'maxUploadSizeBytes' => 20971520,
+
+    /**
+     * Maximum source or generated image pixels; set to 0 to disable the limit.
+     */
+    'maxImagePixels' => 40000000,
+
+    /**
      * Delete behaviour.
      *
      * mode:
@@ -100,7 +110,7 @@ return [
      * Theses are allowed extensions
      */
     'allowedFileExtensions' => [
-        'image' => ['jpg', 'png', 'jpeg', 'gif'],
+        'image' => ['jpg', 'png', 'jpeg', 'gif', 'webp'],
         'excel' => ['xlsx', 'xls', 'csv'],
         'document' => ['doc', 'docx'],
         'powerpoint' => ['ppt', 'pptx'],
