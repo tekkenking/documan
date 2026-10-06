@@ -157,6 +157,7 @@ class Documan
      * and the current un-prefixed original (`abc.jpg`) are handled automatically.
      *
      * @param string|array $baseName The base_name returned by upload()
+     * @param array $additionalSizes Runtime-defined size names to delete
      * @return bool
      */
     public function delete(string|array $baseName, array $additionalSizes = []): bool
@@ -387,41 +388,6 @@ class Documan
         }
     }
 
-
-    /**
-     * Resolve the local path of the original file on the source disk.
-     *
-     * New uploads store the original as the plain base_name (e.g. abc123.jpg).
-     * Legacy uploads used an `original_` prefix (e.g. original_abc123.jpg).
-     * This method tries the unprefixed path first, then falls back to the
-     * legacy prefix so that existing files can still be moved.
-     *
-     * @param $fileName
-     * @param $sourcePath
-     * @return string
-     */
-    private function buildFileToBeMoved($fileName, $sourcePath): string
-    {
-        $newPath    = $sourcePath . '/' . $fileName;
-        $legacyPath = $sourcePath . '/original_' . $fileName;
-
-        if (file_exists($newPath)) {
-            return $newPath;
-        }
-
-        return $legacyPath;
-    }
-
-    /**
-     * @param $file
-     * @return void
-     */
-    private function checkMovingFileIfExist($file): void
-    {
-        if(!file_exists($file)) {
-            throw new DocumanException('MOVE: '.$file.' does not exist');
-        }
-    }
 
     /**
      * @return void

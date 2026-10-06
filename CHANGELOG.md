@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Reject path segments in stored file names and custom size names; return Documan exception messages as plain text.
+- Add configurable upload, batch, variant, and image-pixel limits; stream file contents and close streams promptly.
+- Bound image dimensions before image decoding and restrict local storage directory creation to owner-writable permissions.
+
+### Fixed
+
+- Repair `move()` to stream files from local or remote disks through the upload pipeline.
+- Allow deletion of runtime-defined variants when their size names are supplied.
+- Support WebP uploads in the GD resize path and avoid fetching remote URLs in the Base64 helper.
+
 ## [0.7.0] - 2026-08-05
 
 ### Added

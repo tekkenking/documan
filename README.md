@@ -182,6 +182,13 @@ documan('my_disk')->delete([$user->avatar, $user->cover_photo]);
 ```
 
 Both the current (un-prefixed) and the legacy (`original_`-prefixed) originals are handled automatically.
+If an upload used runtime-defined sizes, include their names so those variants are deleted too:
+
+```php
+documan('my_disk')->delete($user->avatar, ['large', 'icon']);
+```
+
+By default, uploads are limited to 20 MiB per file, 40 MiB total, 20 files, and 20 generated variants per call; source and resized images are limited to 40 million pixels. These limits can be adjusted or disabled in `config/documan.php`.
 
 ---
 
@@ -419,7 +426,7 @@ When enabled, `upload()` and `show()` are fully delegated to your adapter classe
 | Function | Description |
 |---|---|
 | `documan(string $disk = '')` | Resolve a fresh `Documan` instance from the container |
-| `convertImageToBase64($documanInstance, string $size = 'original')` | Read a file via `localPath()` and return its Base64-encoded content |
+| `convertImageToBase64($documanInstance, string $size = 'original')` | Read a local file via `localPath()` in chunks and return its Base64-encoded content; remote URLs are not fetched |
 
 ```php
 $b64 = convertImageToBase64(documan('my_disk')->show($user->avatar), 'medium');
@@ -470,6 +477,13 @@ return [
 
     // When true, a .webp copy is saved alongside every resized image variant
     'outputWebp' => false,
+
+    // Resource limits; set any limit to 0 to disable it
+    'maxUploadSizeBytes' => 20971520,
+    'maxTotalUploadSizeBytes' => 41943040,
+    'maxFilesPerUpload' => 20,
+    'maxVariantsPerUpload' => 20,
+    'maxImagePixels' => 40000000,
 
     // Delete behaviour
     'delete' => [

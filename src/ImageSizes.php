@@ -26,7 +26,10 @@ trait ImageSizes
                     if (!isset($this->defaultSizes[$value])) {
                         throw new DocumanException("{$value} is not a valid size");
                     }
-                    $workingSizes[$value] = $this->defaultSizes[$value];
+                    $workingSizes[$value] = $this->validateSizeDefinition(
+                        (string) $value,
+                        $this->defaultSizes[$value]
+                    );
                 } else {
                     // Associative array: must be ['width' => ..., 'height' => ...]
                     if (!is_array($value)) {
@@ -50,7 +53,7 @@ trait ImageSizes
                         $sizeDefinition = ['width' => $value['width'], 'height' => $value['height']];
                     }
 
-                    $workingSizes[$size] = $sizeDefinition;
+                    $workingSizes[$size] = $this->validateSizeDefinition((string) $size, $sizeDefinition);
                 }
             }
 
@@ -95,6 +98,34 @@ trait ImageSizes
         $this->chosenSizes[$key] = $this->defaultSizes[$key];
     }
 
+    protected function validateSizeDefinition(string $name, array $definition): array
+    {
+        $this->assertSafeStorageFileName($name);
+
+        $width = $definition['width'] ?? null;
+        $height = $definition['height'] ?? null;
+
+        if (
+            (!is_int($width) && !(is_string($width) && ctype_digit($width)))
+            || (!is_int($height) && !(is_string($height) && ctype_digit($height)))
+        ) {
+            throw new DocumanException("The {$name} size must have integer width and height values.");
+        }
+
+        $width = (int) $width;
+        $height = (int) $height;
+        if ($width <= 0 || $height <= 0) {
+            throw new DocumanException("The {$name} size dimensions must be positive.");
+        }
+
+        $maxPixels = (int) ($this->config['maxImagePixels'] ?? 40000000);
+        if ($maxPixels > 0 && $width > intdiv($maxPixels, $height)) {
+            throw new DocumanException("The {$name} size exceeds the configured maximum pixel count.");
+        }
+
+        return ['width' => $width, 'height' => $height];
+    }
+
     /**
      * @param string $key
      * @param array $newSize
@@ -104,15 +135,21 @@ trait ImageSizes
     {
 
         if(!empty($newSize)) {
-            $this->defaultSizes[$key]['width'] = (isset($newSize['w']))
+            $width = (isset($newSize['w']))
                 ? $newSize['w']
-                : $newSize['width'];
+                : ($newSize['width'] ?? null);
 
-            $this->defaultSizes[$key]['height'] = (isset($newSize['h']))
+            $height = (isset($newSize['h']))
                 ? $newSize['h']
-                : $newSize['height'];
+                : ($newSize['height'] ?? null);
+
+            $this->defaultSizes[$key] = $this->validateSizeDefinition($key, [
+                'width' => $width,
+                'height' => $height,
+            ]);
         }
 
+        $this->defaultSizes[$key] = $this->validateSizeDefinition($key, $this->defaultSizes[$key] ?? []);
         $this->addToChoseSizes($key);
     }
 

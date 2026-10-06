@@ -63,6 +63,14 @@ return [
      * Maximum accepted upload size in bytes; set to 0 to disable the limit.
      */
     'maxUploadSizeBytes' => 20971520,
+    'maxTotalUploadSizeBytes' => 41943040,
+
+    /**
+     * Maximum number of files and image variants accepted in one upload call.
+     * Set either limit to 0 to disable it.
+     */
+    'maxFilesPerUpload' => 20,
+    'maxVariantsPerUpload' => 20,
 
     /**
      * Maximum source or generated image pixels; set to 0 to disable the limit.

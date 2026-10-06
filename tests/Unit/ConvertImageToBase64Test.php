@@ -44,3 +44,14 @@ it('returns an empty string instead of crashing for an unreadable path', functio
 
     expect($result)->toBe('');
 });
+
+it('does not fetch remote URLs from an object localPath', function () {
+    $imagePath = new class {
+        public function localPath(string $size): string
+        {
+            return 'https://example.invalid/private.jpg';
+        }
+    };
+
+    expect(convertImageToBase64($imagePath))->toBe('');
+});

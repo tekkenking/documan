@@ -3,6 +3,7 @@
 namespace Tekkenking\Documan;
 
 use Illuminate\Http\UploadedFile;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -10,17 +11,6 @@ use RuntimeException;
 trait WriteDocuman
 {
     public mixed $formFile = null;
-
-    /**
-     * @return void
-     * @deprecated Original copy is now always stored; this method does nothing
-     *             and will be removed in a future release.
-     */
-    private function checkToKeepOriginalSize()
-    {
-        // Original storage is now mandatory. This method is intentionally a no-op
-        // and exists only to avoid fatal errors if called from overriding code.
-    }
 
     public function plain($value): static
     {
@@ -39,6 +29,7 @@ trait WriteDocuman
         }
 
         $file = $request->file($inputName);
+        $this->assertUploadLimits($file);
 
         $externalUploadResponse = $this->useExternalUploader($file);
         if ($externalUploadResponse) {
@@ -63,6 +54,8 @@ trait WriteDocuman
 
     public function upload_without_request($file): DocumanCollections|array
     {
+        $this->assertUploadLimits($file);
+
         $externalUploadResponse = $this->useExternalUploader($file);
         if ($externalUploadResponse) {
             return $externalUploadResponse;
@@ -80,8 +73,13 @@ trait WriteDocuman
     {
         $this->isDiskSet();
         $names = is_array($fileName) ? $fileName : [$fileName];
+        $maxFiles = (int) ($this->config['maxFilesPerUpload'] ?? 20);
+        if ($maxFiles > 0 && count($names) > $maxFiles) {
+            throw new DocumanException('The upload contains more files than allowed.');
+        }
         $sourceDisk = Storage::disk($source_disk);
         $temporaryFiles = [];
+        $totalBytesCopied = 0;
 
         try {
             $files = [];
@@ -140,6 +138,11 @@ trait WriteDocuman
                 if ($maxUploadSize > 0 && $bytesCopied > $maxUploadSize) {
                     throw new DocumanException('The file exceeds the configured maximum upload size.');
                 }
+                $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
+                if ($maxTotalSize > 0 && $bytesCopied > $maxTotalSize - $totalBytesCopied) {
+                    throw new DocumanException('The upload exceeds the configured maximum total size.');
+                }
+                $totalBytesCopied += $bytesCopied;
 
                 $mimeType = mime_content_type($temporaryPath) ?: 'application/octet-stream';
                 $files[] = new UploadedFile(
@@ -167,6 +170,28 @@ trait WriteDocuman
         // caller selected. Using array union preserves an explicit 'original'
         // entry the caller may have added while guaranteeing it always exists.
         $this->chosenSizes = ['original' => ['width' => 999999, 'height' => 999999]] + $this->chosenSizes;
+
+        $maxFiles = (int) ($this->config['maxFilesPerUpload'] ?? 20);
+        if (is_array($file) && $maxFiles > 0 && count($file) > $maxFiles) {
+            throw new DocumanException('The upload contains more files than allowed.');
+        }
+        $maxVariants = (int) ($this->config['maxVariantsPerUpload'] ?? 20);
+        $imageCount = 0;
+        foreach (is_array($file) ? $file : [$file] as $candidate) {
+            $mimeType = $candidate instanceof UploadedFile ? $candidate->getMimeType() : null;
+            if (is_string($mimeType) && documan_mime_group($mimeType) === 'image') {
+                $imageCount++;
+            }
+        }
+        $totalVariants = count($this->chosenSizes) * $imageCount;
+        if ($maxVariants > 0 && $totalVariants > $maxVariants) {
+            throw new DocumanException('The upload requests more image variants than allowed.');
+        }
+        foreach ($this->chosenSizes as $sizeName => $size) {
+            if ($sizeName !== 'original') {
+                $this->chosenSizes[$sizeName] = $this->validateSizeDefinition((string) $sizeName, $size);
+            }
+        }
 
         if (is_array($file)) {
             return $this->processUploadMultiple($file);
@@ -254,6 +279,35 @@ trait WriteDocuman
         }
 
         return $fileNameInSizes;
+    }
+
+    private function assertUploadLimits(mixed $files): void
+    {
+        $files = is_array($files) ? $files : [$files];
+        $maxFiles = (int) ($this->config['maxFilesPerUpload'] ?? 20);
+        if ($maxFiles > 0 && count($files) > $maxFiles) {
+            throw new DocumanException('The upload contains more files than allowed.');
+        }
+
+        $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
+        $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
+        $totalSize = 0;
+        foreach ($files as $file) {
+            if (!$file instanceof UploadedFile) {
+                throw new DocumanException('Only uploaded files can be processed.');
+            }
+
+            $fileSize = $file->getSize();
+            if ($maxUploadSize > 0 && ($fileSize === false || $fileSize > $maxUploadSize)) {
+                throw new DocumanException('The file exceeds the configured maximum upload size.');
+            }
+            if ($fileSize === false || ($maxTotalSize > 0 && $fileSize > $maxTotalSize - $totalSize)) {
+                throw new DocumanException('The upload exceeds the configured maximum total size.');
+            }
+            if ($maxTotalSize > 0) {
+                $totalSize += $fileSize;
+            }
+        }
     }
 
     private function _processImage(string $extnGroup, string $fileName, string $extension): array

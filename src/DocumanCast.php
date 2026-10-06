@@ -128,11 +128,6 @@ class DocumanCast implements CastsAttributes
         return true;
     }
 
-    private function getValueExtension($value): string
-    {
-        return str($value)->afterLast('.')->value;
-    }
-
     private function throwException($msg)
     {
         throw new DocumanException($msg);

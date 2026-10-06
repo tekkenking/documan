@@ -21,7 +21,8 @@ trait ReadDocuman
                 return $this->getDocBySize($args[0] ?? 'custom', $args);
             }
             if (count($args) >= 2) {
-                $customSize = ['width' => (int) $args[0], 'height' => (int) $args[1]];
+                $customSize = ['width' => $args[0], 'height' => $args[1]];
+                $customSize = $this->validateSizeDefinition('custom', $customSize);
                 $this->defaultSizes['custom'] = $customSize;
                 $this->chosenSizes['custom'] = $customSize;
             }
@@ -158,7 +159,7 @@ trait ReadDocuman
     {
         $ext = strtolower($this->getExtension());
         $map = [
-            'jpg' => 'image', 'jpeg' => 'image', 'png' => 'image', 'gif' => 'image',
+            'jpg' => 'image', 'jpeg' => 'image', 'png' => 'image', 'gif' => 'image', 'webp' => 'image',
             'pdf' => 'pdf',
             'doc' => 'document', 'docx' => 'document',
             'xls' => 'excel', 'xlsx' => 'excel', 'csv' => 'excel',
@@ -174,6 +175,7 @@ trait ReadDocuman
             'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
             'png' => 'image/png',
             'gif' => 'image/gif',
+            'webp' => 'image/webp',
             'pdf' => 'application/pdf',
             'doc' => 'application/msword',
             'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

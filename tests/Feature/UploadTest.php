@@ -94,6 +94,52 @@ it('delete() skips missing candidates without failing', function () {
     expect($documan->delete('missing.jpg'))->toBeTrue();
 });
 
+it('deletes variants created with runtime-defined sizes when supplied', function () {
+    $disk = Storage::disk('testing');
+    $disk->put('abc123.jpg', 'data');
+    $disk->put('large_abc123.jpg', 'data');
+
+    (new Documan('testing'))->delete('abc123.jpg', ['large']);
+
+    $disk->assertMissing('abc123.jpg');
+    $disk->assertMissing('large_abc123.jpg');
+});
+
+it('rejects path traversal names for reads and deletes', function () {
+    expect(fn () => (new Documan('testing'))->show('../secret')->localPath('original'))
+        ->toThrow(DocumanException::class);
+    expect(fn () => (new Documan('testing'))->delete('../secret'))
+        ->toThrow(DocumanException::class);
+});
+
+it('rejects uploads larger than the configured byte limit', function () {
+    config()->set('documan.maxUploadSizeBytes', 5);
+    $file = UploadedFile::fake()->createWithContent('report.pdf', '123456');
+
+    (new Documan('testing'))->upload_without_request($file);
+})->throws(DocumanException::class, 'maximum upload size');
+
+it('moves a file between disks through the standard upload pipeline', function () {
+    Storage::fake('source');
+    Storage::disk('source')->put('report.pdf', "%PDF-1.4\nfile contents");
+
+    $result = (new Documan('testing'))->move('report.pdf', 'source');
+
+    expect($result['fileType'])->toBe('pdf');
+    Storage::disk('testing')->assertExists($result['base_name']);
+});
+
+it('rejects traversal in move source names', function () {
+    (new Documan('testing'))->move('../secret.pdf', 'source');
+})->throws(DocumanException::class);
+
+it('renders exception messages as plain text', function () {
+    $response = (new DocumanException('<script>alert(1)</script>'))->render();
+
+    expect($response->headers->get('Content-Type'))->toStartWith('text/plain');
+});
+
+
 /*
 |--------------------------------------------------------------------------
 | Image resize — local vs remote (S3-compatible) disks

@@ -24,13 +24,45 @@ if (!function_exists('convertImageToBase64')) {
      */
     function convertImageToBase64($imagePath, $size = 'original'): string
     {
-        $resolvedPath = is_object($imagePath) && method_exists($imagePath, 'localPath')
+        $usesDocumanPath = is_object($imagePath) && method_exists($imagePath, 'localPath');
+        $resolvedPath = $usesDocumanPath
             ? $imagePath->localPath($size)
             : (string) $imagePath;
 
-        $contents = @file_get_contents($resolvedPath);
+        if (filter_var($resolvedPath, FILTER_VALIDATE_URL) || str_starts_with($resolvedPath, 'file://') || !is_file($resolvedPath)) {
+            return '';
+        }
 
-        return $contents === false ? '' : base64_encode($contents);
+        $stream = @fopen($resolvedPath, 'rb');
+        if ($stream === false) {
+            return '';
+        }
+
+        $encodedChunks = [];
+        $carry = '';
+        try {
+            while (!feof($stream)) {
+                $chunk = fread($stream, 12288);
+                if ($chunk === false) {
+                    return '';
+                }
+
+                $chunk = $carry . $chunk;
+                $completeLength = strlen($chunk) - (strlen($chunk) % 3);
+                if ($completeLength > 0) {
+                    $encodedChunks[] = base64_encode(substr($chunk, 0, $completeLength));
+                }
+                $carry = substr($chunk, $completeLength);
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        if ($carry !== '') {
+            $encodedChunks[] = base64_encode($carry);
+        }
+
+        return implode('', $encodedChunks);
     }
 }
 
