@@ -33,8 +33,8 @@ it('throws when given an invalid image path', function () {
 })->throws(\Exception::class);
 
 it('rejects images exceeding the configured source pixel limit before decoding', function () {
-    if (!function_exists('imagecreatetruecolor') && !extension_loaded('imagick')) {
-        $this->markTestSkipped('GD or Imagick is required for image resize tests.');
+    if (!function_exists('imagecreatetruecolor')) {
+        $this->markTestSkipped('GD is required to generate the test image.');
     }
 
     config()->set('documan.maxImagePixels', 100);
