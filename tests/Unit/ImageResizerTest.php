@@ -32,6 +32,17 @@ it('throws when given an invalid image path', function () {
     $resizer->resizeAndPreserveExif($file, 'output/test.jpg', 800);
 })->throws(\Exception::class);
 
+it('rejects images exceeding the configured source pixel limit before decoding', function () {
+    if (!function_exists('imagecreatetruecolor')) {
+        $this->markTestSkipped('GD is required to generate the test image.');
+    }
+
+    config()->set('documan.maxImagePixels', 100);
+    $file = UploadedFile::fake()->image('large.png', 20, 20);
+
+    (new ImageResizer('public'))->resizeAndPreserveExif($file, 'output/large.png', 10, 10);
+})->throws(\Exception::class, 'maximum pixel count');
+
 
 it('throws a clear exception when a watermark png cannot be loaded by gd', function () {
     if (extension_loaded('imagick')) {

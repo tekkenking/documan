@@ -24,7 +24,7 @@ class DocumanException extends Exception
      * @param $code
      * @param Throwable|null $previous
      */
-    public function __construct($message = "", $code = 0, Throwable $previous = null)
+    public function __construct($message = "", $code = 0, ?Throwable $previous = null)
     {
         parent::__construct($message, $code, $previous);
         $this->message = $message;
@@ -47,7 +47,7 @@ class DocumanException extends Exception
      */
     public function render(): \Illuminate\Http\Response
     {
-        return response($this->message, 422);
+        return response($this->message, 422, ['Content-Type' => 'text/plain; charset=UTF-8']);
     }
 
 }

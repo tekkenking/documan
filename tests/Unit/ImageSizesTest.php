@@ -51,6 +51,16 @@ it('sizes() throws for a new custom size missing width or height', function () {
     $this->documan->sizes(['portrait' => ['width' => 300]]);
 })->throws(DocumanException::class);
 
+it('sizes() rejects names containing path segments', function () {
+    $this->documan->sizes(['../outside' => ['width' => 10, 'height' => 10]]);
+})->throws(DocumanException::class);
+
+it('sizes() rejects dimensions exceeding the configured pixel limit', function () {
+    config()->set('documan.maxImagePixels', 100);
+
+    (new Documan())->sizes(['large' => ['width' => 20, 'height' => 20]]);
+})->throws(DocumanException::class, 'maximum pixel count');
+
 it('custom() via __call registers a custom size for upload', function () {
     $this->documan->custom(320, 240);
 
