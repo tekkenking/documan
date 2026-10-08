@@ -335,6 +335,14 @@ trait WriteDocuman
 
         try {
             // Always persist the original immediately (idempotent).
+            $dimensions = @getimagesize($localSourcePath);
+            if ($dimensions === false || $dimensions[0] <= 0 || $dimensions[1] <= 0) {
+                throw new DocumanException('Invalid image file or dimensions.');
+            }
+            $maxPixels = (int) ($this->config['maxImagePixels'] ?? 40000000);
+            if ($maxPixels > 0 && $dimensions[0] > intdiv($maxPixels, $dimensions[1])) {
+                throw new DocumanException('Source image exceeds the configured maximum pixel count.');
+            }
             $this->putFileFromPath($localSourcePath, $baseFileName);
 
             foreach ($this->chosenSizes as $key => $size) {
