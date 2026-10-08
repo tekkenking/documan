@@ -87,6 +87,8 @@ $result = documan('destination_disk')
     ->move('AbCdEfGhIj.jpg', 'source_disk');
 ```
 
+The source is copied through a temporary file using streams, and upload size limits are applied during the copy. Pass a plain storage filename, not a path: file names containing `/`, `\`, control characters, `.` or `..` are rejected. The same filename rule applies to `delete()` and custom size names. `move()` also recognizes legacy originals stored with an `original_` prefix.
+
 ### Uploading with Custom Sizes
 
 Pass an associative array of `name => ['width' => x, 'height' => y]` to register arbitrary sizes at upload time:
@@ -105,6 +107,12 @@ You can also reference an existing default size by its string name in the array:
 ```php
 ->sizes(['medium', 'thumbnail'])
 ```
+
+### Upload and image limits
+
+The defaults limit each file to 20 MiB, the total upload to 40 MiB, and each upload call to 20 files. Image size requests are limited by `maxVariantsPerUpload` (20 by default). Set any of these limits to `0` to disable it. Configure these values in the published `config/documan.php`.
+
+`maxImagePixels` defaults to 40 million pixels and is checked when image resizing runs, including source and output dimensions. An original-only image upload does not invoke resizing. To generate a WebP companion for each resized image where the active image driver supports WebP, enable `outputWebp`.
 
 ### Adding Extra Allowed Extensions
 
@@ -188,7 +196,7 @@ If an upload used runtime-defined sizes, include their names so those variants a
 documan('my_disk')->delete($user->avatar, ['large', 'icon']);
 ```
 
-By default, uploads are limited to 20 MiB per file, 40 MiB total, 20 files, and 20 generated variants per call; source and resized images are limited to 40 million pixels. These limits can be adjusted or disabled in `config/documan.php`.
+By default, uploads are limited to 20 MiB per file, 40 MiB total, 20 files, and 20 image size requests per call. The `maxImagePixels` limit is 40 million pixels when resizing runs. These limits can be adjusted or disabled in `config/documan.php`.
 
 ---
 
