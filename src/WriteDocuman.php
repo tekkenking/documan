@@ -121,8 +121,16 @@ trait WriteDocuman
                 }
 
                 $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
-                $copyLength = $maxUploadSize > 0 && $maxUploadSize < PHP_INT_MAX
-                    ? $maxUploadSize + 1
+                $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
+                $copyLimit = $maxUploadSize > 0 ? $maxUploadSize : null;
+                if ($maxTotalSize > 0) {
+                    $remainingTotalSize = max(0, $maxTotalSize - $totalBytesCopied);
+                    $copyLimit = $copyLimit === null
+                        ? $remainingTotalSize
+                        : min($copyLimit, $remainingTotalSize);
+                }
+                $copyLength = $copyLimit !== null && $copyLimit < PHP_INT_MAX
+                    ? $copyLimit + 1
                     : null;
 
                 try {
