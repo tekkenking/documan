@@ -130,6 +130,7 @@ it('moves a file between disks through the standard upload pipeline', function (
 });
 
 it('rejects traversal in move source names', function () {
+    Storage::fake('source');
     (new Documan('testing'))->move('../secret.pdf', 'source');
 })->throws(DocumanException::class);
 
