@@ -1,6 +1,69 @@
 # Documan — Laravel File Upload & Display Manager
 
-Documan is a Laravel file upload manager package that provides a convenient way to upload files and, for images, automatically creates multiple resized variants that can be retrieved by name — similar to Cloudinary but fully self-hosted. It works with any Laravel filesystem disk (local, S3, etc.).
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/tekkenking/documan.svg?style=flat-square)](https://packagist.org/packages/tekkenking/documan)
+[![Total Downloads](https://img.shields.io/packagist/dt/tekkenking/documan.svg?style=flat-square)](https://packagist.org/packages/tekkenking/documan)
+[![PHP Version](https://img.shields.io/packagist/php-v/tekkenking/documan.svg?style=flat-square)](https://packagist.org/packages/tekkenking/documan)
+[![License](https://img.shields.io/packagist/l/tekkenking/documan.svg?style=flat-square)](LICENSE)
+
+Upload a file once and get back every size you need. Documan stores the original on any Laravel filesystem disk and automatically creates named image variants you can fetch by name — like Cloudinary, but fully self-hosted on a disk you control.
+
+```php
+// Upload an avatar and generate three sizes
+$result = documan('s3')->small()->thumbnail()->medium()->upload($request, 'avatar');
+
+$user->avatar = $result['base_name'];
+$user->save();
+
+// Fetch any size back
+documan('s3')->show($user->avatar)->medium();
+```
+
+Or let an Eloquent cast handle all of it:
+
+```php
+protected $casts = [
+    'avatar' => DocumanCast::class.':s3:small|thumbnail|medium',
+];
+
+$user->avatar = 'avatar';   // the file input name
+$user->save();              // uploads and resizes here
+
+echo $user->avatar->medium();
+```
+
+## Features
+
+- **Any disk** — local, S3, or any S3-compatible driver, using the disks already in your `filesystems.php`
+- **Named image variants** — five built-in sizes plus any custom size you define
+- **Eloquent cast** — upload on save, resolve URLs on read
+- **Validation rule** — `DocumanFile` covers images, PDFs, documents, spreadsheets and presentations
+- **Soft deletes** — move files to a trash folder instead of destroying them
+- **CDN support** — build display URLs against a remote host
+- **Queue support** — generate variants in background jobs
+- **WebP output** — an optional `.webp` companion for every variant
+- **Resource limits** — file size, upload total, file count and pixel limits enforced by default
+
+## Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Basic Usage](#basic-usage)
+- [Displaying / Showing a File](#displaying--showing-a-file)
+- [Deleting a File](#deleting-a-file)
+- [Available Default Sizes](#available-default-sizes)
+- [Validation Rule](#validation-rule)
+- [Using the Cast](#using-the-cast)
+- [Remote Disk](#remote-disk)
+- [Return Format](#return-format)
+- [S3 / Cloud File Visibility](#s3--cloud-file-visibility)
+- [Using Remote Disks (S3-Compatible)](#using-remote-disks-s3-compatible)
+- [Async / Queue Processing](#async--queue-processing)
+- [External Adapter](#external-adapter)
+- [Global Helper Functions](#global-helper-functions)
+- [Full Configuration Reference](#full-configuration-reference)
+- [Migration from Earlier Versions](#migration-from-earlier-versions)
+- [License](#license)
 
 ## Requirements
 
