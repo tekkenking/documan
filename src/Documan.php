@@ -294,7 +294,9 @@ class Documan implements \JsonSerializable, \Stringable
     private function getDocBySize($method, $args): Documan
     {
         if($this->showFile) {
-            $method = (isset($args[0])) ? $args[0] : $method;
+            //A size name or a width. Dimensions given as an array belong
+            //to an upload and mean nothing when showing a file.
+            $method = (isset($args[0]) && is_scalar($args[0])) ? $args[0] : $method;
             return $this->buildShow($method, $this->showFile, $this->onlyFileName);
         }
 
