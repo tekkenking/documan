@@ -4,6 +4,7 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/tekkenking/documan.svg?style=flat-square)](https://packagist.org/packages/tekkenking/documan)
 [![PHP Version](https://img.shields.io/packagist/php-v/tekkenking/documan.svg?style=flat-square)](https://packagist.org/packages/tekkenking/documan)
 [![License](https://img.shields.io/packagist/l/tekkenking/documan.svg?style=flat-square)](LICENSE)
+[![Tests](https://github.com/tekkenking/documan/actions/workflows/tests.yml/badge.svg)](https://github.com/tekkenking/documan/actions/workflows/tests.yml)
 
 Upload a file once and get back every size you need. Documan stores the original on any Laravel filesystem disk and automatically creates named image variants you can fetch by name — like Cloudinary, but fully self-hosted on a disk you control.
 
@@ -54,14 +55,15 @@ echo $user->avatar->medium();
 - [Available Default Sizes](#available-default-sizes)
 - [Validation Rule](#validation-rule)
 - [Using the Cast](#using-the-cast)
-- [Remote Disk](#remote-disk)
+- [Serving Through a CDN](#serving-through-a-cdn)
 - [Return Format](#return-format)
 - [S3 / Cloud File Visibility](#s3--cloud-file-visibility)
-- [Using Remote Disks (S3-Compatible)](#using-remote-disks-s3-compatible)
+- [Storing on S3 and S3-Compatible Disks](#storing-on-s3-and-s3-compatible-disks)
 - [Async / Queue Processing](#async--queue-processing)
 - [External Adapter](#external-adapter)
 - [Global Helper Functions](#global-helper-functions)
 - [Full Configuration Reference](#full-configuration-reference)
+- [Upgrading to 1.0](#upgrading-to-10)
 - [Migration from Earlier Versions](#migration-from-earlier-versions)
 - [License](#license)
 
@@ -77,7 +79,7 @@ echo $user->avatar->medium();
 composer require tekkenking/documan
 ```
 
-The package is auto-discovered by Laravel (5.5+). No manual provider registration is needed.
+Laravel discovers the package on its own. There is no provider to register.
 
 ## Configuration
 
@@ -108,24 +110,36 @@ public function store(Request $request)
         ->medium()
         ->upload($request, 'avatar');
 
-    // $result is an array:
-    // [
-    //   'fileType'   => 'image',
-    //   'base_name'  => 'AbCdEfGhIj.jpg',        // ← the original on disk
-    //   'variations' => [
-    //     'original'  => 'AbCdEfGhIj.jpg',        // plain base_name, no prefix
-    //     'small'     => 'small_AbCdEfGhIj.jpg',
-    //     'thumbnail' => 'thumbnail_AbCdEfGhIj.jpg',
-    //     'medium'    => 'medium_AbCdEfGhIj.jpg',
-    //   ],
-    //   'links' => [ ... ],  // present when returnUploadWith.links = true (default)
-    // ]
-
     // Save base_name to the database
     $user->avatar = $result['base_name'];
     $user->save();
 }
 ```
+
+#### What `upload()` gives back
+
+`$result` is an array describing what was stored. Nothing here needs configuring; it is what the call returns:
+
+```php
+[
+    'fileType'   => 'image',
+    'base_name'  => 'AbCdEfGhIj.jpg',            // the original on disk; store this
+    'variations' => [
+        'original'  => 'AbCdEfGhIj.jpg',
+        'small'     => 'small_AbCdEfGhIj.jpg',
+        'thumbnail' => 'thumbnail_AbCdEfGhIj.jpg',
+        'medium'    => 'medium_AbCdEfGhIj.jpg',
+    ],
+    'links' => [                                 // one URL per variation
+        'original'  => 'https://example.com/storage/my_disk/AbCdEfGhIj.jpg',
+        'small'     => 'https://example.com/storage/my_disk/small_AbCdEfGhIj.jpg',
+        'thumbnail' => 'https://example.com/storage/my_disk/thumbnail_AbCdEfGhIj.jpg',
+        'medium'    => 'https://example.com/storage/my_disk/medium_AbCdEfGhIj.jpg',
+    ],
+]
+```
+
+`links` is there by default; see [Return Format](#return-format) to turn it off or to add local paths.
 
 > **Backward compatibility** — Images uploaded with an earlier version of Documan may have their original stored as `original_AbCdEfGhIj.jpg` (with the `original_` prefix). Documan handles both formats transparently when displaying and deleting files.
 
@@ -188,6 +202,8 @@ $result = documan('my_disk')
 // $result['fileType'] => 'others'
 ```
 
+Note the two spellings: `upload()` reports an added type as `others`, while `getType()` on a shown file reports `other`.
+
 The built-in types are recognised by their contents. A type you add this way is not one Documan can recognise, so it is matched on the file's **extension**, which the uploader controls. Add only types you are happy to store from that user, and do not serve them from a path that executes code. Extensions a web server may run (`php`, `phtml`, `phar` and similar) are refused even if you add them.
 
 ### How a file is named
@@ -241,7 +257,7 @@ After calling `show()`, the following helper methods are also available:
 | Method | Returns | Description |
 |---|---|---|
 | `getExtension()` | `string` | File extension derived from the stored `base_name` |
-| `getType()` | `string` | Group name (`image`, `pdf`, `document`, `excel`, `powerpoint`, `other`) |
+| `getType()` | `string` | Group name, worked out from the extension: `image`, `pdf`, `document`, `excel`, `powerpoint`, or `other` for anything else |
 | `mimeType()` | `string` | MIME type string (e.g. `image/jpeg`) |
 | `localPath(string $size)` | `string` | Absolute local filesystem path to the given size variant |
 | `showFileName()` | `?string` | The raw `base_name` that was passed to `show()` |
@@ -283,8 +299,6 @@ If an upload used runtime-defined sizes under other names, include those names s
 ```php
 documan('my_disk')->delete($user->avatar, ['large', 'icon']);
 ```
-
-By default, uploads are limited to 20 MiB per file, 40 MiB total, 20 files, and 20 image size requests per call. The `maxImagePixels` limit is 40 million pixels when resizing runs. These limits can be adjusted or disabled in `config/documan.php`.
 
 ---
 
@@ -353,7 +367,7 @@ protected $casts = [
     // With size variants
     'avatar' => DocumanCast::class.':my_disk:small|thumbnail|medium',
 
-    // Remote disk (resolves URLs against the configured remote host)
+    // CDN host (resolves URLs against the configured remote host)
     'avatar' => DocumanCast::class.':remote_my_disk',
 ];
 ```
@@ -378,9 +392,9 @@ $user->save();            // upload happens here; base_name is stored in the DB
 
 ---
 
-## Remote Disk
+## Serving Through a CDN
 
-Use `remoteDisk()` to build URLs against a remote host (e.g. a CDN) instead of using the local filesystem URL:
+This is about the **URL** a file is shown at, not where it is stored. Use `remoteDisk()` to build display URLs against another host, such as a CDN in front of your storage. To store files on S3, see [Storing on S3 and S3-Compatible Disks](#storing-on-s3-and-s3-compatible-disks).
 
 ```php
 // Set in config/documan.php:
@@ -460,7 +474,7 @@ The `->visibility()` call is chainable and can be placed anywhere before `->uplo
 
 ---
 
-## Using Remote Disks (S3-Compatible)
+## Storing on S3 and S3-Compatible Disks
 
 Documan fully supports S3-compatible remote disks. Image resizing, uploads, and display URLs all work the same way as with a local disk — you only need to point `disk` at a disk configured with the `s3` driver.
 
@@ -483,7 +497,7 @@ $result = documan('s3')
 ### Public vs private objects and URL retrieval
 
 - For **public** objects (`s3_visibility` / `->visibility('public')`), display URLs are generated with `Storage::disk($disk)->url($path)`, which returns the disk's configured public URL — `Storage::path()` is never used for remote disks since it has no meaning there.
-- For **private** objects, `Storage::disk($disk)->url()` will return a signed/private URL only if your driver supports it; otherwise generate a temporary URL yourself (e.g. `Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(5))`) and pass it through `->plain()`.
+- For **private** objects, `show()` returns a signed temporary URL from `Storage::disk($disk)->temporaryUrl()`. It lasts `s3_url_expiry` minutes (1440, one day, by default). If the driver cannot sign a URL, a warning is logged and the plain URL is returned. Visibility is read from `s3_visibility`, or from `->visibility('private')` on the same call: `documan('s3')->visibility('private')->show($file)->medium()`.
 - `show()`/`localPath()` and the `paths` key in `upload()`'s return value are local-disk concepts. On a remote disk, `localPath()` (the read-side helper) falls back to the disk URL instead of a filesystem path, while the upload-side `paths` key stays `null` (there is no local root to report) — use the `links` key for the public URL instead.
 
 ---
@@ -551,6 +565,9 @@ return [
     // 'private' — files require signed URLs / server-side auth.
     // Override per-upload with ->visibility('private').
     's3_visibility' => 'public',
+
+    // How long a signed URL for a private file lasts, in minutes
+    's3_url_expiry' => 1440,
 
     // Remote CDN / host configuration
     'remote' => [
@@ -631,6 +648,16 @@ return [
 ```
 
 ---
+
+## Upgrading to 1.0
+
+Coming from 0.8.x, three things change what you see:
+
+- **Sizes fit inside the box.** On a server without Imagick, an image used to be stretched to the exact width and height. On every server it now keeps its shape and is never enlarged, so a 1600×900 photo at `medium` is 800×450, not 800×800. Variants already on disk are left as they are; re-upload or `move()` a file to regenerate them.
+- **The stored extension follows the file's contents.** A PNG uploaded as `photo.jpg` is stored as `.png`.
+- **Laravel 12 or 13 and PHP 8.2 are required.** Applications on Laravel 10 or 11 stay on 0.9.0.
+
+Every change is listed in the [changelog](CHANGELOG.md).
 
 ## Migration from Earlier Versions
 
