@@ -34,7 +34,7 @@ echo $user->avatar->medium();
 
 ## Features
 
-- **Any disk** — local, S3, or any S3-compatible driver, using the disks already in your `filesystems.php`
+- **Any disk** — local, S3, or any S3-compatible driver, using the disks already in your `filesystems.php`. [Tested on real S3 storage](#test-status).
 - **Named image variants** — five built-in sizes plus any custom size you define
 - **Eloquent cast** — upload on save, resolve URLs on read
 - **Validation rule** — `DocumanFile` covers images, PDFs, documents, spreadsheets and presentations
@@ -676,13 +676,14 @@ Every change is listed in the [changelog](CHANGELOG.md).
 
 ## Test Status
 
-Beyond the automated tests, 1.0.2 was run end to end in a fresh Laravel 13 app:
+Beyond the automated tests, 1.0.2 was run end to end in a fresh Laravel 13 app, with every returned URL fetched over HTTP:
 
 - **Local disk** — every example in this README.
-- **S3-compatible storage** — against a local [MinIO](https://min.io) server: uploads, variants, WebP copies, public links, signed links for private files, `move()` between disks, the cast, and hard and soft delete, with each URL fetched over HTTP.
+- **S3 storage, private files** — on a real Cloudflare R2 bucket and on a local [MinIO](https://min.io) server: uploads, variants, WebP copies, signed links from `upload()` and `show()`, `move()` between disks, the cast, and hard and soft delete.
+- **S3 storage, public files** — upload and viewing by plain link on MinIO. On R2 the upload was confirmed; viewing by plain link needs the bucket's public domain set as the disk's `url`, which was not part of the run.
 - **Queues** — a separate `queue:work` process on the database queue and on Redis, writing to a local disk and to the S3 bucket.
 
-Not yet run against Amazon S3 itself. Behaviour specific to AWS, such as a bucket with ACLs disabled refusing a `public` upload, is unconfirmed; please report what you find.
+Amazon S3 itself has not been run; R2 and MinIO speak the same S3 API through the same Laravel driver. If you find a difference on AWS, please report it.
 
 ---
 
