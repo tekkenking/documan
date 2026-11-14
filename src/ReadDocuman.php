@@ -48,21 +48,26 @@ trait ReadDocuman
 
     private function buildShow($size, $fileName, $onlyFileName): Documan
     {
-        $this->arrFilesToShow[] = $this->resolveShowValue((string) $size, (string) $fileName, (bool) $onlyFileName);
+        $this->arrFilesToShow[] = $this->resolveShowValue(is_int($size) ? $size : (string) $size, (string) $fileName, (bool) $onlyFileName);
 
         return $this;
     }
 
     /**
      * The URL, or the file name when $onlyFileName is set, of one size.
+     *
+     * An external adapter is given the size as the caller gave it, so
+     * custom(300) reaches it as the integer 300 and not the string '300'.
      */
-    private function resolveShowValue(string $size, string $fileName, bool $onlyFileName): string
+    private function resolveShowValue(int|string $size, string $fileName, bool $onlyFileName): string
     {
         if ($this->config['externalAdapter']['enabled']) {
             $adapterClass = $this->config['externalAdapter']['adapter']['show'];
 
             return (string) (new $adapterClass)->externalShow($fileName, $size);
         }
+
+        $size = (string) $size;
 
         $this->assertSafeStorageFileName($fileName);
         $this->assertSafeStorageFileName($size);

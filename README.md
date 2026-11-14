@@ -536,15 +536,28 @@ An upload adapter implements `Tekkenking\Documan\Interface\ExternalUpload`:
 
 ```php
 public function externalUpload(UploadedFile|array $file, array $sizes = []): array|bool;
+public function forDocuman(array $assets): string|array;
 ```
+
+`externalUpload()` receives one file, or an array of files, and returns what `upload()` should return: `['base_name' => $id]` for one file, or a list of those for several. `forDocuman()` is yours to call from it, to shape your service's reply that way.
 
 A show adapter implements `Tekkenking\Documan\Interface\ExternalShow`:
 
 ```php
 public function externalShow(string $fileSha, int|string|null $size = null): string;
+public function resolveSize(int|string|null $size): int;
 ```
 
-When enabled, `upload()` and `show()` are handed to your adapter classes and the built-in storage logic is bypassed. If `externalUpload()` returns `false`, the built-in upload runs instead. Documan calls it with the file only; `$sizes` is not passed.
+`externalShow()` receives the stored id and the size asked for, and returns the URL. The size is the name (`'big'`, `'medium'`, `'original'`, or a name given to `custom('large')`), or an integer when the caller wrote `custom(300)`. `resolveSize()` is yours to call from it, to turn that into a width.
+
+```php
+documan()->show($user->avatar)->medium();     // externalShow($id, 'medium')
+documan()->show($user->avatar)->custom(300);  // externalShow($id, 300)
+```
+
+When enabled, `upload()`, `upload_without_request()`, `show()` and the cast are handed to your adapter classes and the built-in storage logic is bypassed, so no disk needs to be set. Upload size and file count limits still apply; the file type is not checked, since that is the adapter's to decide. If `externalUpload()` returns `false`, the built-in upload runs instead. Documan calls it with the file only; `$sizes` is not passed. `delete()` and `move()` are not handed to an adapter.
+
+The bundled adapters are for [tekkenking/tinypeexi](https://packagist.org/packages/tekkenking/tinypeexi), which must be installed for them to work.
 
 ---
 

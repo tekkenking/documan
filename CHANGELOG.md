@@ -5,8 +5,18 @@ All notable changes to `tekkenking/documan` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.3] - 2026-11-14
 
+The external adapter had no tests. It now has eleven, and was run against the bundled TinyPeexi adapters on 0.8.2 and on this release: every URL 0.8.2 produced is unchanged.
+
+### Fixed
+
+- **`show($id)->custom(300)` gave an external show adapter the string `'300'`.** Up to 0.8.2 it was the integer `300`, and since 0.9.0 an adapter checking `is_int($size)` saw a name instead of a width. It is an integer again.
+- `show($id)->big(['width' => 10, 'height' => 10])` raised "Array to string conversion". Dimensions mean nothing when showing a file and are now ignored.
+
+### Changed
+
+- README: the External Adapter section lists all four interface methods, what each is given, and what is and is not handed to an adapter.
 - README: the Test Status section now records a run against a real Cloudflare R2 bucket, for private and for public files.
 - README: the config reference lists `webp` as an allowed image type, as the shipped config does, and the External Adapter section names the two interfaces with their real signatures.
 
