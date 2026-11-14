@@ -532,10 +532,19 @@ Documan supports plugging in a third-party upload/show adapter (e.g. a cloud AI 
 ],
 ```
 
-Upload adapters must implement `externalUpload($file): array`.  
-Show adapters must implement `externalShow($fileName, $size): string`.
+An upload adapter implements `Tekkenking\Documan\Interface\ExternalUpload`:
 
-When enabled, `upload()` and `show()` are fully delegated to your adapter classes; the built-in storage logic is bypassed.
+```php
+public function externalUpload(UploadedFile|array $file, array $sizes = []): array|bool;
+```
+
+A show adapter implements `Tekkenking\Documan\Interface\ExternalShow`:
+
+```php
+public function externalShow(string $fileSha, int|string|null $size = null): string;
+```
+
+When enabled, `upload()` and `show()` are handed to your adapter classes and the built-in storage logic is bypassed. If `externalUpload()` returns `false`, the built-in upload runs instead. Documan calls it with the file only; `$sizes` is not passed.
 
 ---
 
@@ -628,7 +637,7 @@ return [
 
     // Allowed file types by group (validated against actual MIME type, not extension)
     'allowedFileExtensions' => [
-        'image'       => ['jpg', 'png', 'jpeg', 'gif'],
+        'image'       => ['jpg', 'png', 'jpeg', 'gif', 'webp'],
         'excel'       => ['xlsx', 'xls', 'csv'],
         'document'    => ['doc', 'docx'],
         'powerpoint'  => ['ppt', 'pptx'],
