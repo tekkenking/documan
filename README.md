@@ -680,7 +680,7 @@ Beyond the automated tests, 1.0.2 was run end to end in a fresh Laravel 13 app, 
 
 - **Local disk** — every example in this README.
 - **S3 storage, private files** — on a real Cloudflare R2 bucket and on a local [MinIO](https://min.io) server: uploads, variants, WebP copies, signed links from `upload()` and `show()`, `move()` between disks, the cast, and hard and soft delete.
-- **S3 storage, public files** — upload and viewing by plain link on MinIO. On R2 the upload was confirmed; viewing by plain link needs the bucket's public domain set as the disk's `url`, which was not part of the run.
+- **S3 storage, public files** — on the same R2 bucket, served from its public address set as the disk's `url`, and on MinIO: uploads, variants, WebP copies, a PDF, plain links from `upload()` and `show()`, the cast, and a deleted file's link going dead.
 - **Queues** — a separate `queue:work` process on the database queue and on Redis, writing to a local disk and to the S3 bucket.
 
 Amazon S3 itself has not been run; R2 and MinIO speak the same S3 API through the same Laravel driver. If you find a difference on AWS, please report it.
