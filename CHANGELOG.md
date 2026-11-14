@@ -5,7 +5,43 @@ All notable changes to `tekkenking/documan` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-11-14
+
+An audit of 0.8.2 found that the documented usage did not work. Every item below was reproduced first and is now covered by a test.
+
+### Fixed
+
+- **`documan('my_disk')` ignored the disk it was given.** With the shipped config the disk stayed unset and every upload threw; with a disk in the config, that one was used instead. The disk passed in now wins, and the configured one is the fallback.
+- **`show($file)->small()`, `->medium()` and `->thumbnail()` returned nothing.** They were treated as upload size selectors. After `show()` they now fetch the variant, as `->big()` and `->tiny()` did.
+- **`echo $user->avatar->medium()` was a fatal error.** A shown file now prints as its URL.
+- **A second size asked of the same object came back as the first.** `$doc->medium` then `$doc->small` both gave the medium URL.
+- **The original could not be shown.** `->original` and `->original()` now return it.
+- **The `Documan` facade alias pointed at a class that does not exist.**
+- **`defaultReturn => 'Collection'` threw a `TypeError` on a single-file upload.**
+- **`addExtension()` had no effect.** Types added with it are now accepted, matched on the file's extension. Extensions a web server may run are refused.
+- **Images were distorted on servers without Imagick.** GD stretched every image to the exact box, so a 1600×900 photo at `medium` came out 800×800, and small images were enlarged. Both engines now fit the image inside the box, keep its shape and never enlarge it.
+- **Phone photos came out sideways with GD.** The EXIF rotation is now applied (needs `ext-exif`).
+- **`delete()` left the `.webp` copies and the `custom` size on the disk.**
+- **A failed upload left files behind.** Everything the call had stored is removed before the exception is thrown.
+- **A model with a Documan cast serialised to an empty object.** In `toArray()` and `toJson()` the attribute is now the stored file name.
+- **Showing a file on a local disk with no `url` in its config threw.** Upload links now fall back to the disk's own URL too, where they used to be `null`.
+- **A file was stored under the extension it was sent with**, so a PNG named `photo.jpg` was stored as `.jpg`. The extension now follows the contents, and must be one the config allows for that type.
+
+### Added
+
+- `verifyVariantExists` config key. Set it to `false` to skip the per-image existence check on remote disks.
+- `uploadDefaultImageSizes` config key, the correct spelling of `uploadDefaulImageSizes`. The old key is still read.
+- CI on PHP 8.2 to 8.4 against Laravel 12 and 13, on both image engines, and PHPStan at level 5.
+
+### Changed
+
+- Image variants made with GD have different dimensions than before, because they are no longer stretched. Variants already stored are not touched.
+- With Imagick, a tall narrow image is now limited by the box's height as well as its width.
+- `upload()` and `upload_without_request()` declare `array|DocumanCollections|DocumanSingle` as their return type.
+- `ext-fileinfo` is declared as a requirement. It was always needed.
+- Laravel 10 and 11 remain installable but are no longer tested: both are out of security support.
+
+## [0.8.0] to [0.8.2] - 2026-10-08
 
 ### Security
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tekkenking\Documan;
 
 
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
@@ -67,7 +68,7 @@ documan('agent_photo')
 
  */
 
-class Documan
+class Documan implements \JsonSerializable, \Stringable
 {
     use ReadDocuman, WriteDocuman, ImageSizes;
 
@@ -126,17 +127,24 @@ class Documan
             //return upload with paths
             $this->returnWithPaths($this->config['returnUploadWith']['paths']);
 
-            //Set default disk from config
-            $this->setDisk($this->config['disk'] ?? $disk);
+            //The disk named on the call wins; the configured one is the
+            //fallback. This used to be config ?? $disk, and since the
+            //shipped config holds '' rather than null, the disk passed to
+            //documan('name') was never used.
+            $this->setDisk($disk !== '' ? $disk : ($this->config['disk'] ?? ''));
 
             // Set visibility from config (defaults to 'public' if not present)
             $this->visibility = $this->config['s3_visibility'] ?? 'public';
 
             //Are there default sizes to be uploaded at all time
-            if(!empty($this->config['uploadDefaulImageSizes'])) {
-                foreach($this->config['uploadDefaulImageSizes'] as $sizeKey){
-                    $this->chosenSizes[$sizeKey] = $this->defaultSizes[$sizeKey];
-                }
+            //'uploadDefaulImageSizes' is the original, misspelled key. It
+            //is still read so a published config keeps working.
+            $alwaysUpload = $this->config['uploadDefaultImageSizes']
+                ?? $this->config['uploadDefaulImageSizes']
+                ?? [];
+
+            foreach($alwaysUpload as $sizeKey){
+                $this->chosenSizes[$sizeKey] = $this->defaultSizes[$sizeKey];
             }
 
         }
@@ -164,11 +172,10 @@ class Documan
     {
         $this->isDiskSet();
         $disk = Storage::disk($this->getDisk());
-        $baseNames = is_array($baseName) ? $baseName : [$baseName];
 
         $mode        = $this->config['delete']['mode'] ?? 'hard';
         $trashFolder = trim($this->config['delete']['trash_folder'] ?? 'trash', '/');
-        $sizes       = array_unique(array_merge(array_keys($this->defaultSizes), $additionalSizes));
+        $sizes       = array_unique(array_merge(array_keys($this->defaultSizes), ['custom'], $additionalSizes));
 
         foreach (explode('/', $trashFolder) as $segment) {
             if ($segment === '' || $segment === '.' || $segment === '..' || str_contains($segment, '\\')) {
@@ -176,26 +183,8 @@ class Documan
             }
         }
 
-        foreach ($baseNames as $name) {
-            if (!is_string($name)) {
-                throw new DocumanException('File names must be strings.');
-            }
-            $this->assertSafeStorageFileName($name);
-
-            // Candidates:
-            //   $name            — current: base_name IS the original (no prefix)
-            //   'original_'.$name — legacy: original stored with prefix
-            //   '{size}_'.$name  — all resized variants
-            $candidates = [$name, 'original_' . $name];
-            foreach ($sizes as $size) {
-                if (!is_string($size)) {
-                    throw new DocumanException('Size names must be strings.');
-                }
-                $this->assertSafeStorageFileName($size);
-                $candidates[] = $size . '_' . $name;
-            }
-
-            foreach ($candidates as $candidate) {
+        foreach (is_array($baseName) ? $baseName : [$baseName] as $name) {
+            foreach ($this->storedNamesFor($name, $sizes) as $candidate) {
                 try {
                     if ($mode === 'soft') {
                         $disk->move($candidate, $trashFolder . '/' . $candidate);
@@ -209,6 +198,40 @@ class Documan
         }
 
         return true;
+    }
+
+    /**
+     * Every name an upload may have been stored under.
+     *
+     *   $name             — the original (no prefix)
+     *   'original_'.$name — the original as older versions stored it
+     *   '{size}_'.$name   — each resized variant
+     *   the same with .webp — the copy made when outputWebp is on
+     *
+     * @return array<int, string>
+     */
+    private function storedNamesFor(mixed $name, array $sizes): array
+    {
+        if (!is_string($name)) {
+            throw new DocumanException('File names must be strings.');
+        }
+        $this->assertSafeStorageFileName($name);
+
+        $candidates = [$name, 'original_' . $name];
+
+        foreach ($sizes as $size) {
+            if (!is_string($size)) {
+                throw new DocumanException('Size names must be strings.');
+            }
+            $this->assertSafeStorageFileName($size);
+
+            $variant = $size . '_' . $name;
+            $candidates[] = $variant;
+            //The original never has a .webp copy, only the variants do.
+            $candidates[] = preg_replace('/\.\w+$/', '.webp', $variant) ?? $variant;
+        }
+
+        return array_values(array_unique($candidates));
     }
 
     public function addExtension(array $extns): Documan
@@ -227,11 +250,40 @@ class Documan
             return $this->showFile;
         }
 
-        if(!isset($this->defaultSizes[$size])) {
+        if($size !== 'original' && !isset($this->defaultSizes[$size])) {
             return '';
         }
 
-        return $this->getDocBySize($size, [])->first();
+        if(!$this->showFile) {
+            return '';
+        }
+
+        //Resolved on its own rather than through first(): the list that
+        //first() reads keeps growing, so a second size asked of the same
+        //object used to come back as the first one.
+        return $this->resolveShowValue((string) $size, $this->showFile, $this->onlyFileName);
+    }
+
+    /**
+     * The URL (or file name) of the size most recently asked for, so a
+     * show call can be echoed: {{ $user->avatar->medium() }}.
+     */
+    public function __toString(): string
+    {
+        if($this->arrFilesToShow !== []) {
+            return (string) end($this->arrFilesToShow);
+        }
+
+        return (string) $this->showFile;
+    }
+
+    /**
+     * A model holding a Documan attribute serialises to the stored file
+     * name, which is what the database column holds.
+     */
+    public function jsonSerialize(): mixed
+    {
+        return $this->showFile;
     }
 
     /**
@@ -251,8 +303,8 @@ class Documan
 
 
     /**
-     * @param null $disk
-     * @param null $root_uri
+     * @param string|null $disk
+     * @param string|null $root_uri
      * @return $this
      */
     public function remoteDisk($disk = null, $root_uri = null): Documan
@@ -356,6 +408,24 @@ class Documan
     }
 
     /**
+     * The disk as something that can produce URLs.
+     *
+     * Storage::disk() promises only the bare filesystem contract, which
+     * has no url() or temporaryUrl(). Every disk Laravel builds is an
+     * adapter that has both.
+     */
+    protected function urlDisk(?string $disk): FilesystemAdapter
+    {
+        $storage = Storage::disk($disk);
+
+        if (!$storage instanceof FilesystemAdapter) {
+            throw new DocumanException("The '{$disk}' disk cannot produce URLs.");
+        }
+
+        return $storage;
+    }
+
+    /**
      * Ensure a storage key is a single safe filename rather than a path.
      */
     protected function assertSafeStorageFileName(string $name): void
@@ -374,18 +444,24 @@ class Documan
 
 
     /**
-     * @param $onlyFileName
-     * @param $fileSystemDisk
-     * @param $fileName
-     * @return void
+     * The URL of a file on a local disk, or its bare name.
+     *
+     * @param bool $onlyFileName
+     * @param array $fileSystemDisk
+     * @param string $fileName
      */
-    private function _arrayFileNames($onlyFileName, $fileSystemDisk, $fileName): void
+    private function localFileUrl($onlyFileName, $fileSystemDisk, $fileName): string
     {
         if($onlyFileName) {
-            $this->arrFilesToShow[] = $fileName;
-        } else {
-            $this->arrFilesToShow[] = $fileSystemDisk['url'].'/'.$fileName;
+            return $fileName;
         }
+
+        //A local disk need not declare a url; Laravel has its own default.
+        if(empty($fileSystemDisk['url'])) {
+            return $this->urlDisk($this->getDisk())->url($fileName);
+        }
+
+        return rtrim($fileSystemDisk['url'], '/').'/'.$fileName;
     }
 
 

@@ -1,0 +1,48 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { php: '8.2', laravel: '12.*', testbench: '^10.0', pest: '^3.0' }
+          - { php: '8.3', laravel: '12.*', testbench: '^10.0', pest: '^3.0' }
+          - { php: '8.4', laravel: '12.*', testbench: '^10.0', pest: '^3.0' }
+          - { php: '8.3', laravel: '13.*', testbench: '^11.0', pest: '^4.0' }
+          - { php: '8.4', laravel: '13.*', testbench: '^11.0', pest: '^4.0' }
+          # The same suite on the GD engine, which most shared hosts have.
+          - { php: '8.4', laravel: '13.*', testbench: '^11.0', pest: '^4.0', engine: 'gd' }
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: fileinfo, exif, zip, gd${{ matrix.engine != 'gd' && ', imagick' || '' }}
+          coverage: none
+      - run: >
+          composer require --no-interaction --no-update
+          "laravel/framework:${{ matrix.laravel }}"
+          "orchestra/testbench:${{ matrix.testbench }}"
+          "pestphp/pest:${{ matrix.pest }}" --dev
+      - run: composer update --no-interaction --prefer-dist --no-progress
+      - run: vendor/bin/pest
+
+  phpstan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: fileinfo, exif, gd, imagick
+          coverage: none
+      - run: composer update --no-interaction --prefer-dist --no-progress
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
