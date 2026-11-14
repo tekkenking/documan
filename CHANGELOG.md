@@ -5,6 +5,19 @@ All notable changes to `tekkenking/documan` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-14
+
+Documentation only. Every README example was run against a fresh install of 1.0.0 first; all of them work.
+
+### Changed
+
+- The README said to build a temporary URL yourself for a private file. `show()` already returns a signed one, lasting `s3_url_expiry` minutes; the README now says so and lists that setting.
+- "Remote Disk" is now "Serving Through a CDN" and "Using Remote Disks" is "Storing on S3 and S3-Compatible Disks", since the first is about URLs and the second about storage.
+- What `upload()` returns is shown as its own block instead of a comment inside the controller example.
+- Added an "Upgrading to 1.0" section, a tests badge and a link to this changelog.
+- Removed a repeated paragraph on upload limits and an install note that mentioned Laravel 5.5.
+- Noted that `upload()` reports an added file type as `others` while `getType()` reports `other`.
+
 ## [1.0.0] - 2026-11-14
 
 First stable release. The code is 0.9.0's; this release sets the supported versions.
