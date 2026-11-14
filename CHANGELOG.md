@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- README: the Test Status section now records a run against a real Cloudflare R2 bucket.
+- README: the Test Status section now records a run against a real Cloudflare R2 bucket, for private and for public files.
 
 ## [1.0.2] - 2026-11-14
 
