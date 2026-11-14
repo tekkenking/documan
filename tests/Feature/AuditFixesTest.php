@@ -300,3 +300,43 @@ it('gives sizes from a model attribute as a property and as a method', function 
         ->and($user->avatar->original)->toBe("http://localhost/photos/{$name}")
         ->and($user->toArray()['avatar'])->toBe($name);
 });
+
+// ── Private uploads ─────────────────────────────────────────────────────
+
+it('returns signed links from upload for a private file on a remote disk', function () {
+    config()->set('filesystems.disks.spaces', [
+        'driver' => 's3', 'bucket' => 'b', 'region' => 'r', 'key' => 'k', 'secret' => 's',
+        'url' => 'https://b.example.com',
+    ]);
+    Storage::fake('spaces');
+    Storage::disk('spaces')->buildTemporaryUrlsUsing(
+        fn (string $path, $expiry) => "https://signed.example.com/{$path}?expires=".$expiry->getTimestamp()
+    );
+
+    $private = documan('spaces')->visibility('private')->medium()->upload_without_request(auditImage());
+    $name = $private['base_name'];
+
+    expect($private['links']['medium'])->toStartWith("https://signed.example.com/medium_{$name}?expires=")
+        ->and($private['links']['original'])->toStartWith("https://signed.example.com/{$name}?expires=")
+        ->and($private['links']['medium'])->toBe((string) documan('spaces')->visibility('private')->show($name)->medium());
+
+    $public = documan('spaces')->medium()->upload_without_request(auditImage());
+
+    expect($public['links']['medium'])->toBe('https://b.example.com/medium_'.$public['base_name']);
+});
+
+it('returns a signed link from upload for a private document on a remote disk', function () {
+    config()->set('filesystems.disks.spaces', [
+        'driver' => 's3', 'bucket' => 'b', 'region' => 'r', 'key' => 'k', 'secret' => 's',
+        'url' => 'https://b.example.com',
+    ]);
+    Storage::fake('spaces');
+    Storage::disk('spaces')->buildTemporaryUrlsUsing(
+        fn (string $path, $expiry) => "https://signed.example.com/{$path}?expires=".$expiry->getTimestamp()
+    );
+
+    $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('report.pdf', "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
+    $result = documan('spaces')->visibility('private')->upload_without_request($file);
+
+    expect($result['link'])->toStartWith('https://signed.example.com/'.$result['base_name'].'?expires=');
+});

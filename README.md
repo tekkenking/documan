@@ -65,6 +65,7 @@ echo $user->avatar->medium();
 - [Full Configuration Reference](#full-configuration-reference)
 - [Upgrading to 1.0](#upgrading-to-10)
 - [Migration from Earlier Versions](#migration-from-earlier-versions)
+- [Test Status](#test-status)
 - [License](#license)
 
 ## Requirements
@@ -498,6 +499,7 @@ $result = documan('s3')
 
 - For **public** objects (`s3_visibility` / `->visibility('public')`), display URLs are generated with `Storage::disk($disk)->url($path)`, which returns the disk's configured public URL — `Storage::path()` is never used for remote disks since it has no meaning there.
 - For **private** objects, `show()` returns a signed temporary URL from `Storage::disk($disk)->temporaryUrl()`. It lasts `s3_url_expiry` minutes (1440, one day, by default). If the driver cannot sign a URL, a warning is logged and the plain URL is returned. Visibility is read from `s3_visibility`, or from `->visibility('private')` on the same call: `documan('s3')->visibility('private')->show($file)->medium()`.
+- The `links` that `upload()` returns for a private file are signed the same way, so they work straight away and stop working when they expire. Store `base_name`, not a link, and call `show()` when you need a fresh URL.
 - `show()`/`localPath()` and the `paths` key in `upload()`'s return value are local-disk concepts. On a remote disk, `localPath()` (the read-side helper) falls back to the disk URL instead of a filesystem path, while the upload-side `paths` key stays `null` (there is no local root to report) — use the `links` key for the public URL instead.
 
 ---
@@ -669,6 +671,18 @@ Every change is listed in the [changelog](CHANGELOG.md).
 | Delete | Permanent only | `hard` (permanent) or `soft` (move to trash) |
 
 **No action is needed for existing files.** Documan reads and deletes both the old `original_`-prefixed files and the new un-prefixed originals automatically.
+
+---
+
+## Test Status
+
+Beyond the automated tests, 1.0.2 was run end to end in a fresh Laravel 13 app:
+
+- **Local disk** — every example in this README.
+- **S3-compatible storage** — against a local [MinIO](https://min.io) server: uploads, variants, WebP copies, public links, signed links for private files, `move()` between disks, the cast, and hard and soft delete, with each URL fetched over HTTP.
+- **Queues** — a separate `queue:work` process on the database queue and on Redis, writing to a local disk and to the S3 bucket.
+
+Not yet run against Amazon S3 itself. Behaviour specific to AWS, such as a bucket with ACLs disabled refusing a `public` upload, is unconfirmed; please report what you find.
 
 ---
 

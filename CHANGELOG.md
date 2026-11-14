@@ -5,6 +5,16 @@ All notable changes to `tekkenking/documan` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-11-14
+
+### Fixed
+
+- **`upload()` returned links that did not work for a private file on a remote disk.** They were the plain URLs, which the storage provider refuses. They are now signed, as the URLs from `show()` are, and last `s3_url_expiry` minutes. Links for public files and for local disks are unchanged.
+
+### Added
+
+- A "Test Status" section in the README. This release was run against a local MinIO server and with real queue workers on the database queue and on Redis. It has not been run against Amazon S3 itself.
+
 ## [1.0.1] - 2026-11-14
 
 Documentation only. Every README example was run against a fresh install of 1.0.0 first; all of them work.
