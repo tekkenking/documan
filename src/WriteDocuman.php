@@ -395,10 +395,22 @@ trait WriteDocuman
 
     /**
      * The link reported for a stored file: the disk's configured url when
-     * it has one, otherwise whatever its driver gives.
+     * it has one, otherwise whatever its driver gives. A private file on
+     * a remote disk gets the signed URL show() would give, since its
+     * plain one is refused.
      */
     private function linkFor(string $fileName): ?string
     {
+        $disk = (string) $this->getDisk();
+
+        if ($this->getVisibility() === 'private' && !$this->isLocalDisk($disk)) {
+            try {
+                return $this->remoteUrl($disk, $fileName);
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
         if ($this->linkPath !== '') {
             return $this->linkPath.'/'.$fileName;
         }
