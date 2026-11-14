@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Tekkenking\Documan;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use Illuminate\Contracts\Database\Eloquent\SerializesCastableAttributes;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 
-/** @implements CastsAttributes<Documan, mixed> */
-class DocumanCast implements CastsAttributes
+/** @implements CastsAttributes<Documan|string, mixed> */
+class DocumanCast implements CastsAttributes, SerializesCastableAttributes
 {
     public string $disk = '';
 
@@ -58,7 +59,8 @@ class DocumanCast implements CastsAttributes
     public function get($model, string $key, $value, array $attributes)
     {
         if (! $value) {
-            return $value;
+            //An empty column stays as it is stored.
+            return is_string($value) ? $value : null;
         }
 
         $documan = new Documan;
@@ -111,6 +113,16 @@ class DocumanCast implements CastsAttributes
         }
 
         return $value ?? null;
+    }
+
+    /**
+     * In toArray() and toJson() the attribute is the stored file name, as
+     * it is in the database. Without this the model serialised an object
+     * with none of the file's details in it.
+     */
+    public function serialize($model, string $key, $value, array $attributes)
+    {
+        return $value instanceof Documan ? $value->showFileName() : $value;
     }
 
     private function isUploadedFileArray(array $value): bool

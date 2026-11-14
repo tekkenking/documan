@@ -29,6 +29,10 @@ trait ReadDocuman
             return $this;
         }
 
+        if ($method === 'original' && $this->showFile) {
+            return $this->getDocBySize('original', $args);
+        }
+
         if (isset($this->defaultSizes[$method])) {
             if (!$this->showFile) {
                 // Upload mode: register the size to process
@@ -44,23 +48,28 @@ trait ReadDocuman
 
     private function buildShow($size, $fileName, $onlyFileName): Documan
     {
-        if ($this->config['externalAdapter']['enabled']) {
-            // Your external provider show logic here
-            $adapterClass = $this->config['externalAdapter']['adapter']['show'];
-            $adapter = new $adapterClass;
-            $this->arrFilesToShow[] = $adapter->externalShow($fileName, $size);
+        $this->arrFilesToShow[] = $this->resolveShowValue((string) $size, (string) $fileName, (bool) $onlyFileName);
 
-            return $this;
+        return $this;
+    }
+
+    /**
+     * The URL, or the file name when $onlyFileName is set, of one size.
+     */
+    private function resolveShowValue(string $size, string $fileName, bool $onlyFileName): string
+    {
+        if ($this->config['externalAdapter']['enabled']) {
+            $adapterClass = $this->config['externalAdapter']['adapter']['show'];
+
+            return (string) (new $adapterClass)->externalShow($fileName, $size);
         }
 
-        $this->assertSafeStorageFileName((string) $fileName);
-        $this->assertSafeStorageFileName((string) $size);
+        $this->assertSafeStorageFileName($fileName);
+        $this->assertSafeStorageFileName($size);
         $fileNameBySize = $size.'_'.$fileName;
 
         if ($this->remoteHost) {
-            $this->arrFilesToShow[] = $this->remoteHost.'/'.$fileNameBySize;
-
-            return $this;
+            return $this->remoteHost.'/'.$fileNameBySize;
         }
 
         $this->isDiskSet();
@@ -69,52 +78,62 @@ trait ReadDocuman
         if ($this->isLocalDisk($disk)) {
             $fileSystemDisk = $this->getFileSystemDisk($disk);
 
-            if (!file_exists($fileSystemDisk['root'] . '/' . $fileNameBySize)) {
-                // Supporting those files without the size prefix in their naming
+            //The original is stored without a prefix, and so are files
+            //from before sizes were prefixed.
+            if (!Storage::disk($disk)->exists($fileNameBySize)) {
                 $fileNameBySize = $fileName;
             }
 
-            $this->_arrayFileNames($onlyFileName, $fileSystemDisk, $fileNameBySize);
-
-            return $this;
+            return $this->localFileUrl($onlyFileName, $fileSystemDisk, $fileNameBySize);
         }
 
-        // Remote/S3-compatible disk (e.g. DigitalOcean Spaces) — never assume
-        // a local 'root' path exists. Resolve the public URL through the
-        // disk's own driver instead of touching the local filesystem.
-        if (!Storage::disk($disk)->exists($fileNameBySize)) {
-            // Supporting those files without the size prefix in their naming
-            $fileNameBySize = $fileName;
+        $fileNameBySize = $this->remoteFileName($disk, $fileNameBySize, $fileName);
+
+        return $onlyFileName ? $fileNameBySize : $this->remoteUrl($disk, $fileNameBySize);
+    }
+
+    /**
+     * The name to serve from a remote disk.
+     *
+     * Checking that the variant exists costs one request to the storage
+     * provider per image shown. 'verifyVariantExists' => false skips it and
+     * trusts the name, which suits a page listing many images.
+     */
+    private function remoteFileName(string $disk, string $fileNameBySize, string $fileName): string
+    {
+        if (!($this->config['verifyVariantExists'] ?? true)) {
+            //The original carries no prefix, so its name is known without asking.
+            return str_starts_with($fileNameBySize, 'original_') ? $fileName : $fileNameBySize;
         }
 
-        if ($onlyFileName) {
-            $this->arrFilesToShow[] = $fileNameBySize;
-        } else {
-            // For private files on remote disks, generate a signed URL
-            $url = Storage::disk($disk)->url($fileNameBySize);
-            
-            if ($this->getVisibility() === 'private') {
-                try {
-                    $expiry = $this->config['s3_url_expiry'] ?? 1440;
-                    $url = Storage::disk($disk)->temporaryUrl(
-                        $fileNameBySize,
-                        now()->addMinutes($expiry)
-                    );
-                } catch (\Exception $e) {
-                    // If temporaryUrl fails (e.g., driver doesn't support it),
-                    // fall back to the regular URL and log the issue
-                    logger()->warning('Documan: Failed to generate temporary URL for private file', [
-                        'disk' => $disk,
-                        'file' => $fileNameBySize,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-            
-            $this->arrFilesToShow[] = $url;
+        return Storage::disk($disk)->exists($fileNameBySize) ? $fileNameBySize : $fileName;
+    }
+
+    /**
+     * A public URL, or a signed temporary one when the files are private.
+     */
+    private function remoteUrl(string $disk, string $fileName): string
+    {
+        $storage = $this->urlDisk($disk);
+
+        if ($this->getVisibility() !== 'private') {
+            return $storage->url($fileName);
         }
 
-        return $this;
+        try {
+            $expiry = $this->config['s3_url_expiry'] ?? 1440;
+
+            return $storage->temporaryUrl($fileName, now()->addMinutes($expiry));
+        } catch (\Exception $e) {
+            //Not every driver can sign a URL; fall back to the plain one.
+            logger()->warning('Documan: Failed to generate temporary URL for private file', [
+                'disk' => $disk,
+                'file' => $fileName,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $storage->url($fileName);
+        }
     }
 
     public function show(string $showFile, bool $onlyFileName = false): static
@@ -210,30 +229,7 @@ trait ReadDocuman
         $disk = $this->getDisk();
 
         if (!$this->isLocalDisk($disk)) {
-            if (!Storage::disk($disk)->exists($fileName)) {
-                $fileName = $this->showFile;
-            }
-
-            $url = Storage::disk($disk)->url($fileName);
-            
-            // For private files on remote disks, generate a signed URL
-            if ($this->getVisibility() === 'private') {
-                try {
-                    $expiry = $this->config['s3_url_expiry'] ?? 1440;
-                    $url = Storage::disk($disk)->temporaryUrl(
-                        $fileName,
-                        now()->addMinutes($expiry)
-                    );
-                } catch (\Exception $e) {
-                    logger()->warning('Documan: Failed to generate temporary URL for private file in localPath', [
-                        'disk' => $disk,
-                        'file' => $fileName,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-            
-            return $url;
+            return $this->remoteUrl($disk, $this->remoteFileName($disk, $fileName, (string) $this->showFile));
         }
 
         $fileSystemDisk = $this->getFileSystemDisk($disk);

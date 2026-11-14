@@ -110,7 +110,7 @@ return [
     /**
      * The sizes to save if no size was selected during upload
      */
-    'uploadDefaulImageSizes' => [
+    'uploadDefaultImageSizes' => [
         // 'medium'
     ],
 
@@ -124,6 +124,15 @@ return [
         'powerpoint' => ['ppt', 'pptx'],
         'pdf' => ['pdf'],
     ],
+
+    /**
+     * On a remote disk such as S3, showing a size first asks the provider
+     * whether that variant exists, and falls back to the original when it
+     * does not. That is one request per image shown. Set this to false to
+     * skip the check and trust the name, which suits pages listing many
+     * images; a variant that was never created then gives a broken link.
+     */
+    'verifyVariantExists' => true,
 
     'returnUploadWith' => [
         'links' => true,

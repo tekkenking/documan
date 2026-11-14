@@ -17,50 +17,50 @@ trait ImageSizes
 
     public function sizes(array $sizes = []): Documan
     {
-        if (!empty($sizes)) {
-            $workingSizes = [];
+        $workingSizes = [];
 
-            foreach ($sizes as $size => $value) {
-                if (is_int($size)) {
-                    // Indexed array: reference an existing default size by name
-                    if (!isset($this->defaultSizes[$value])) {
-                        throw new DocumanException("{$value} is not a valid size");
-                    }
-                    $workingSizes[$value] = $this->validateSizeDefinition(
-                        (string) $value,
-                        $this->defaultSizes[$value]
-                    );
-                } else {
-                    // Associative array: must be ['width' => ..., 'height' => ...]
-                    if (!is_array($value)) {
-                        throw new DocumanException("{$size} value must be properly formed array with width or height or both");
-                    }
-
-                    if (isset($this->defaultSizes[$size])) {
-                        // Override an existing default size at runtime without mutating $defaultSizes
-                        $sizeDefinition = $this->defaultSizes[$size];
-                        if (isset($value['width'])) {
-                            $sizeDefinition['width'] = $value['width'];
-                        }
-                        if (isset($value['height'])) {
-                            $sizeDefinition['height'] = $value['height'];
-                        }
-                    } else {
-                        // Register a brand-new custom size at runtime
-                        if (!isset($value['width']) || !isset($value['height'])) {
-                            throw new DocumanException("{$size} value must be properly formed array with width and height");
-                        }
-                        $sizeDefinition = ['width' => $value['width'], 'height' => $value['height']];
-                    }
-
-                    $workingSizes[$size] = $this->validateSizeDefinition((string) $size, $sizeDefinition);
-                }
-            }
-
-            $this->chosenSizes = array_merge($this->chosenSizes, $workingSizes);
+        foreach ($sizes as $size => $value) {
+            //A bare name picks one of the configured sizes; a named entry
+            //gives its own dimensions.
+            $name = is_int($size) ? (string) $value : (string) $size;
+            $workingSizes[$name] = $this->validateSizeDefinition($name, $this->sizeDefinitionFor($size, $value));
         }
 
+        $this->chosenSizes = array_merge($this->chosenSizes, $workingSizes);
+
         return $this;
+    }
+
+    /**
+     * @return array{width: mixed, height: mixed}
+     */
+    private function sizeDefinitionFor(int|string $size, mixed $value): array
+    {
+        if (is_int($size)) {
+            if (!is_string($value) || !isset($this->defaultSizes[$value])) {
+                throw new DocumanException((is_scalar($value) ? $value : 'That').' is not a valid size');
+            }
+
+            return $this->defaultSizes[$value];
+        }
+
+        if (!is_array($value)) {
+            throw new DocumanException("{$size} value must be properly formed array with width or height or both");
+        }
+
+        if (isset($this->defaultSizes[$size])) {
+            //A configured size, with either dimension overridden for this call.
+            return [
+                'width'  => $value['width'] ?? $this->defaultSizes[$size]['width'],
+                'height' => $value['height'] ?? $this->defaultSizes[$size]['height'],
+            ];
+        }
+
+        if (!isset($value['width']) || !isset($value['height'])) {
+            throw new DocumanException("{$size} value must be properly formed array with width and height");
+        }
+
+        return ['width' => $value['width'], 'height' => $value['height']];
     }
 
     /**
@@ -69,6 +69,12 @@ trait ImageSizes
      */
     public function medium(array $newSize = []): Documan
     {
+        //After show(), a size names the variant to fetch rather than one
+        //to create.
+        if ($this->showFile) {
+            return $this->buildShow('medium', $this->showFile, $this->onlyFileName);
+        }
+
         $this->sizeSetter('medium', $newSize);
         return $this;
     }
@@ -79,6 +85,12 @@ trait ImageSizes
      */
     public function thumbnail(array $newSize = []): Documan
     {
+        //After show(), a size names the variant to fetch rather than one
+        //to create.
+        if ($this->showFile) {
+            return $this->buildShow('thumbnail', $this->showFile, $this->onlyFileName);
+        }
+
         $this->sizeSetter('thumbnail', $newSize);
         return $this;
     }
@@ -89,6 +101,12 @@ trait ImageSizes
      */
     public function small(array $newSize = []): Documan
     {
+        //After show(), a size names the variant to fetch rather than one
+        //to create.
+        if ($this->showFile) {
+            return $this->buildShow('small', $this->showFile, $this->onlyFileName);
+        }
+
         $this->sizeSetter('small', $newSize);
         return $this;
     }

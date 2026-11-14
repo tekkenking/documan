@@ -68,7 +68,8 @@ echo $user->avatar->medium();
 ## Requirements
 
 - PHP ^8.1
-- Laravel ^10.0 | ^11.0 | ^12.0 | ^13.0
+- Laravel ^10.0 | ^11.0 | ^12.0 | ^13.0. The test suite runs on Laravel 12 and 13; versions 10 and 11 are out of security support and are no longer tested.
+- `ext-fileinfo`, and for image variants either `ext-imagick` (preferred) or `ext-gd`. With GD, `ext-exif` is needed to turn phone photos the right way up.
 
 ## Installation
 
@@ -181,15 +182,35 @@ The defaults limit each file to 20 MiB, the total upload to 40 MiB, and each upl
 
 ```php
 $result = documan('my_disk')
-    ->addExtension(['svg', 'webp'])
+    ->addExtension(['zip', 'txt'])
     ->upload($request, 'file');
+
+// $result['fileType'] => 'others'
 ```
+
+The built-in types are recognised by their contents. A type you add this way is not one Documan can recognise, so it is matched on the file's **extension**, which the uploader controls. Add only types you are happy to store from that user, and do not serve them from a path that executes code. Extensions a web server may run (`php`, `phtml`, `phar` and similar) are refused even if you add them.
+
+### How a file is named
+
+The stored extension follows the file's contents, not the name it was sent with: a PNG uploaded as `photo.jpg` is stored as `.png`.
+
+### When an upload fails
+
+If any file in an upload call is refused or cannot be processed, everything that call had already stored is removed before the exception is thrown, so a failed upload leaves nothing behind.
 
 ---
 
 ## Displaying / Showing a File
 
-Use `show($baseName)` to set the file, then chain a size method to get the URL:
+Use `show($baseName)` to set the file, then name a size. As a **property** it gives the URL as a string; as a **method** it gives an object that prints as the URL, so both work in a Blade template:
+
+```php
+$doc = documan('my_disk')->show($user->avatar);
+
+$url = $doc->medium;            // string
+echo $doc->medium();            // prints the URL
+$url = $doc->medium()->first(); // string
+```
 
 ```php
 // Named sizes
@@ -208,6 +229,10 @@ $url = documan('my_disk')->show($user->avatar)->custom('large');
 // Return only the filename instead of the full URL
 $name = documan('my_disk')->show($user->avatar, true)->medium();
 ```
+
+If the size asked for was never created, the original is returned instead.
+
+On a remote disk such as S3, that fallback costs one request to the storage provider for every image shown. For a page listing many images, set `'verifyVariantExists' => false` in `config/documan.php`: the check is skipped and the name is trusted, so a size that was never created gives a broken link rather than the original.
 
 ### Show Helper Methods
 
@@ -252,8 +277,8 @@ documan('my_disk')->delete($user->avatar);
 documan('my_disk')->delete([$user->avatar, $user->cover_photo]);
 ```
 
-Both the current (un-prefixed) and the legacy (`original_`-prefixed) originals are handled automatically.
-If an upload used runtime-defined sizes, include their names so those variants are deleted too:
+Both the current (un-prefixed) and the legacy (`original_`-prefixed) originals are handled automatically, along with the `.webp` copies made when `outputWebp` is on and the `custom` size.
+If an upload used runtime-defined sizes under other names, include those names so their variants are deleted too:
 
 ```php
 documan('my_disk')->delete($user->avatar, ['large', 'icon']);
@@ -278,6 +303,8 @@ All sizes can be overridden in `config/documan.php` under `defaultImageSizes`, o
 ```php
 ->medium(['width' => 600, 'height' => 400])
 ```
+
+A size is a box the image is fitted **inside**. The picture keeps its shape and is never enlarged: a 1600×900 photo asked for at `medium` (800×800) is stored at 800×450, and a 300×200 image stays 300×200. Photos carrying a rotation note from a phone camera are turned upright first.
 
 For a fully ad-hoc size, use `custom()`:
 
@@ -336,7 +363,11 @@ protected $casts = [
 ```php
 echo $user->avatar->medium();
 echo $user->avatar->thumbnail();
+
+{{ $user->avatar->small }}   {{-- the same, as a property --}}
 ```
+
+In `toArray()` and `toJson()` the attribute is the stored file name, as it is in the database.
 
 **Writing** — pass the HTML input name and Documan uploads automatically:
 
@@ -389,7 +420,7 @@ $result = documan('my_disk')
 
 ### Array vs Collection
 
-By default `upload()` returns a plain PHP array. Set `defaultReturn` to `'Collection'` in `config/documan.php` to receive a `DocumanCollections` object instead.
+By default `upload()` returns a plain PHP array. Set `defaultReturn` to `'Collection'` in `config/documan.php` to receive an object instead: a `DocumanSingle` for one file, a `DocumanCollections` for several.
 
 ---
 
@@ -572,7 +603,7 @@ return [
     ],
 
     // Sizes to generate on every upload even when no size method is called
-    'uploadDefaulImageSizes' => [
+    'uploadDefaultImageSizes' => [
         // 'medium',
     ],
 
@@ -585,13 +616,16 @@ return [
         'pdf'         => ['pdf'],
     ],
 
+    // On a remote disk, check a size exists before linking to it (one request per image)
+    'verifyVariantExists' => true,
+
     // Include links (full URLs) and/or paths (absolute local paths) in upload result
     'returnUploadWith' => [
         'links' => true,
         'paths' => false,
     ],
 
-    // 'array' returns a plain PHP array; 'Collection' returns a DocumanCollections object
+    // 'array' returns a plain PHP array; 'Collection' returns a DocumanSingle or DocumanCollections object
     'defaultReturn' => 'array',
 ];
 ```

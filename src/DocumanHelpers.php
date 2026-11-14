@@ -38,31 +38,39 @@ if (!function_exists('convertImageToBase64')) {
             return '';
         }
 
-        $encodedChunks = [];
-        $carry = '';
         try {
-            while (!feof($stream)) {
-                $chunk = fread($stream, 12288);
-                if ($chunk === false) {
-                    return '';
-                }
-
-                $chunk = $carry . $chunk;
-                $completeLength = strlen($chunk) - (strlen($chunk) % 3);
-                if ($completeLength > 0) {
-                    $encodedChunks[] = base64_encode(substr($chunk, 0, $completeLength));
-                }
-                $carry = substr($chunk, $completeLength);
-            }
+            return documan_base64_from_stream($stream);
         } finally {
             fclose($stream);
         }
+    }
+}
 
-        if ($carry !== '') {
-            $encodedChunks[] = base64_encode($carry);
+if (! function_exists('documan_base64_from_stream')) {
+    /**
+     * Encode a stream in chunks, so a large image is never held in memory
+     * twice. Chunks are cut on a 3-byte boundary so the pieces join cleanly.
+     *
+     * @param resource $stream
+     */
+    function documan_base64_from_stream($stream): string
+    {
+        $encoded = '';
+        $carry = '';
+
+        while (!feof($stream)) {
+            $chunk = fread($stream, 12288);
+            if ($chunk === false) {
+                return '';
+            }
+
+            $chunk = $carry . $chunk;
+            $completeLength = strlen($chunk) - (strlen($chunk) % 3);
+            $encoded .= base64_encode(substr($chunk, 0, $completeLength));
+            $carry = substr($chunk, $completeLength);
         }
 
-        return implode('', $encodedChunks);
+        return $encoded . base64_encode($carry);
     }
 }
 
@@ -108,6 +116,24 @@ if (! function_exists('documan_safe_extension_from_mime')) {
         ];
 
         return $map[$mimeType] ?? 'bin';
+    }
+}
+
+if (! function_exists('documan_extensions_for_mime')) {
+    /**
+     * Every extension that is correct for a MIME type, the usual one first.
+     *
+     * @return array<int, string>
+     */
+    function documan_extensions_for_mime(string $mimeType): array
+    {
+        if ($mimeType === 'image/jpeg') {
+            return ['jpg', 'jpeg'];
+        }
+
+        $extension = documan_safe_extension_from_mime($mimeType);
+
+        return $extension === 'bin' ? [] : [$extension];
     }
 }
 

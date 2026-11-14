@@ -12,6 +12,14 @@ trait WriteDocuman
 {
     public mixed $formFile = null;
 
+    /**
+     * Every file this upload call has put on the disk so far, so a failure
+     * part-way through can take them back off.
+     *
+     * @var array<int, string>
+     */
+    private array $writtenFiles = [];
+
     public function plain($value): static
     {
         $this->showFile = $value;
@@ -22,7 +30,7 @@ trait WriteDocuman
     /**
      * @return array
      */
-    public function upload(Request $request, string $inputName): array
+    public function upload(Request $request, string $inputName): array|DocumanCollections|DocumanSingle
     {
         if (!$request->hasFile($inputName)) {
             throw new DocumanException("No file found for input '{$inputName}'.");
@@ -52,7 +60,7 @@ trait WriteDocuman
         return false;
     }
 
-    public function upload_without_request($file): DocumanCollections|array
+    public function upload_without_request($file): array|DocumanCollections|DocumanSingle
     {
         $this->assertUploadLimits($file);
 
@@ -77,97 +85,129 @@ trait WriteDocuman
         if ($maxFiles > 0 && count($names) > $maxFiles) {
             throw new DocumanException('The upload contains more files than allowed.');
         }
-        $sourceDisk = Storage::disk($source_disk);
-        $temporaryFiles = [];
+
+        $files = [];
         $totalBytesCopied = 0;
 
         try {
-            $files = [];
             foreach ($names as $name) {
                 if (!is_string($name)) {
                     throw new DocumanException('File names must be strings.');
                 }
                 $this->assertSafeStorageFileName($name);
 
-                try {
-                    $stream = $sourceDisk->readStream($name);
-                } catch (\Throwable) {
-                    $stream = false;
-                }
-
-                if (!is_resource($stream)) {
-                    try {
-                        $stream = $sourceDisk->readStream('original_' . $name);
-                    } catch (\Throwable) {
-                        $stream = false;
-                    }
-                }
-
-                if (!is_resource($stream)) {
-                    throw new DocumanException("Unable to read '{$name}' from the source disk.");
-                }
-
-                $temporaryPath = tempnam(sys_get_temp_dir(), 'documan_move_');
-                if ($temporaryPath === false) {
-                    fclose($stream);
-                    throw new RuntimeException('Unable to create a temporary file for moving.');
-                }
-                $temporaryFiles[] = $temporaryPath;
-
-                $temporaryStream = fopen($temporaryPath, 'wb');
-                if ($temporaryStream === false) {
-                    fclose($stream);
-                    throw new RuntimeException('Unable to write the temporary file for moving.');
-                }
-
-                $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
-                $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
-                $copyLimit = $maxUploadSize > 0 ? $maxUploadSize : null;
-                if ($maxTotalSize > 0) {
-                    $remainingTotalSize = max(0, $maxTotalSize - $totalBytesCopied);
-                    $copyLimit = $copyLimit === null
-                        ? $remainingTotalSize
-                        : min($copyLimit, $remainingTotalSize);
-                }
-                $copyLength = $copyLimit !== null && $copyLimit < PHP_INT_MAX
-                    ? $copyLimit + 1
-                    : null;
-
-                try {
-                    $bytesCopied = stream_copy_to_stream($stream, $temporaryStream, $copyLength);
-                } finally {
-                    fclose($temporaryStream);
-                    fclose($stream);
-                }
-
-                if ($bytesCopied === false || $bytesCopied === 0) {
-                    throw new DocumanException("Unable to copy '{$name}' from the source disk.");
-                }
-                if ($maxUploadSize > 0 && $bytesCopied > $maxUploadSize) {
-                    throw new DocumanException('The file exceeds the configured maximum upload size.');
-                }
-                $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
-                if ($maxTotalSize > 0 && $bytesCopied > $maxTotalSize - $totalBytesCopied) {
-                    throw new DocumanException('The upload exceeds the configured maximum total size.');
-                }
+                [$files[], $bytesCopied] = $this->copyFromSourceDisk($source_disk, $name, $totalBytesCopied);
                 $totalBytesCopied += $bytesCopied;
-
-                $mimeType = mime_content_type($temporaryPath) ?: 'application/octet-stream';
-                $files[] = new UploadedFile(
-                    $temporaryPath,
-                    $name,
-                    $mimeType,
-                    UPLOAD_ERR_OK,
-                    true
-                );
             }
 
             return $this->processUpload(is_array($fileName) ? $files : ($files[0] ?? null));
         } finally {
-            foreach ($temporaryFiles as $temporaryPath) {
-                @unlink($temporaryPath);
+            foreach ($files as $file) {
+                @unlink($file->getPathname());
             }
         }
+    }
+
+    /**
+     * Bring one file from another disk to a local temporary file, stopping
+     * as soon as it passes the size limits.
+     *
+     * @return array{0: UploadedFile, 1: int} [file, bytes copied]
+     */
+    private function copyFromSourceDisk(string $sourceDisk, string $name, int $bytesSoFar): array
+    {
+        $stream = $this->openSourceStream($sourceDisk, $name);
+        $maxUploadSize = (int) ($this->config['maxUploadSizeBytes'] ?? 20971520);
+        $maxTotalSize = (int) ($this->config['maxTotalUploadSizeBytes'] ?? 41943040);
+
+        //One byte past the limit is enough to know the file is too big,
+        //without copying the rest of it.
+        $limits = array_filter([
+            $maxUploadSize > 0 ? $maxUploadSize : null,
+            $maxTotalSize > 0 ? max(0, $maxTotalSize - $bytesSoFar) : null,
+        ], fn ($limit) => $limit !== null);
+        $copyLength = $limits === [] ? null : min($limits) + 1;
+
+        [$temporaryPath, $bytesCopied] = $this->copyStreamToTempFile($stream, 'documan_move_', $copyLength);
+
+        try {
+            if ($bytesCopied === 0) {
+                throw new DocumanException("Unable to copy '{$name}' from the source disk.");
+            }
+            if ($maxUploadSize > 0 && $bytesCopied > $maxUploadSize) {
+                throw new DocumanException('The file exceeds the configured maximum upload size.');
+            }
+            if ($maxTotalSize > 0 && $bytesCopied > $maxTotalSize - $bytesSoFar) {
+                throw new DocumanException('The upload exceeds the configured maximum total size.');
+            }
+        } catch (\Throwable $e) {
+            @unlink($temporaryPath);
+
+            throw $e;
+        }
+
+        $mimeType = mime_content_type($temporaryPath) ?: 'application/octet-stream';
+
+        return [new UploadedFile($temporaryPath, $name, $mimeType, UPLOAD_ERR_OK, true), $bytesCopied];
+    }
+
+    /**
+     * Open a stored file for reading, also under the 'original_' prefix
+     * that older versions stored originals with.
+     *
+     * @return resource
+     */
+    private function openSourceStream(string $sourceDisk, string $name)
+    {
+        foreach ([$name, 'original_'.$name] as $candidate) {
+            try {
+                $stream = Storage::disk($sourceDisk)->readStream($candidate);
+            } catch (\Throwable) {
+                $stream = null;
+            }
+
+            if (is_resource($stream)) {
+                return $stream;
+            }
+        }
+
+        throw new DocumanException("Unable to read '{$name}' from the source disk.");
+    }
+
+    /**
+     * Copy a stream into a new local temporary file and close it.
+     *
+     * @param resource $stream
+     * @return array{0: string, 1: int} [path, bytes copied]
+     */
+    private function copyStreamToTempFile($stream, string $prefix, ?int $maxBytes = null): array
+    {
+        $path = tempnam(sys_get_temp_dir(), $prefix);
+        $handle = $path === false ? false : fopen($path, 'wb');
+
+        if ($path === false || $handle === false) {
+            fclose($stream);
+            if ($path !== false) {
+                @unlink($path);
+            }
+
+            throw new RuntimeException('Unable to create a local temporary file.');
+        }
+
+        try {
+            $bytesCopied = stream_copy_to_stream($stream, $handle, $maxBytes);
+        } finally {
+            fclose($handle);
+            fclose($stream);
+        }
+
+        if ($bytesCopied === false) {
+            @unlink($path);
+
+            throw new RuntimeException('Unable to copy the file to a local temporary file.');
+        }
+
+        return [$path, $bytesCopied];
     }
 
     protected function processUpload($file): array
@@ -183,29 +223,74 @@ trait WriteDocuman
         if (is_array($file) && $maxFiles > 0 && count($file) > $maxFiles) {
             throw new DocumanException('The upload contains more files than allowed.');
         }
-        $maxVariants = (int) ($this->config['maxVariantsPerUpload'] ?? 20);
-        $imageCount = 0;
-        foreach (is_array($file) ? $file : [$file] as $candidate) {
-            $mimeType = $candidate instanceof UploadedFile ? $candidate->getMimeType() : null;
-            if (is_string($mimeType) && documan_mime_group($mimeType) === 'image') {
-                $imageCount++;
-            }
-        }
-        $totalVariants = count($this->chosenSizes) * $imageCount;
-        if ($maxVariants > 0 && $totalVariants > $maxVariants) {
-            throw new DocumanException('The upload requests more image variants than allowed.');
-        }
+        $this->assertVariantLimit(is_array($file) ? $file : [$file]);
         foreach ($this->chosenSizes as $sizeName => $size) {
             if ($sizeName !== 'original') {
                 $this->chosenSizes[$sizeName] = $this->validateSizeDefinition((string) $sizeName, $size);
             }
         }
 
-        if (is_array($file)) {
-            return $this->processUploadMultiple($file);
+        $this->writtenFiles = [];
+
+        try {
+            return is_array($file)
+                ? $this->processUploadMultiple($file)
+                : $this->processUploadSingle($file);
+        } catch (\Throwable $e) {
+            //Nothing refers to these files once the call has failed, so
+            //leaving them would fill the disk with orphans.
+            $this->removeWrittenFiles();
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Every image in the call produces one file per chosen size.
+     */
+    private function assertVariantLimit(array $files): void
+    {
+        $maxVariants = (int) ($this->config['maxVariantsPerUpload'] ?? 20);
+        $imageCount = 0;
+
+        foreach ($files as $candidate) {
+            $mimeType = $candidate instanceof UploadedFile ? $candidate->getMimeType() : null;
+            if (is_string($mimeType) && documan_mime_group($mimeType) === 'image') {
+                $imageCount++;
+            }
         }
 
-        return $this->processUploadSingle($file);
+        if ($maxVariants > 0 && count($this->chosenSizes) * $imageCount > $maxVariants) {
+            throw new DocumanException('The upload requests more image variants than allowed.');
+        }
+    }
+
+    /**
+     * Take back everything a failed upload call stored.
+     */
+    private function removeWrittenFiles(): void
+    {
+        foreach ($this->writtenFiles as $name) {
+            try {
+                Storage::disk($this->getDisk())->delete($name);
+            } catch (\Throwable $e) {
+                logger()->warning('Documan: could not remove a file from a failed upload: '.$name, ['exception' => $e]);
+            }
+        }
+
+        $this->writtenFiles = [];
+    }
+
+    /**
+     * A variant and, when WebP copies are on, its .webp twin.
+     */
+    private function rememberVariant(string $fileName): void
+    {
+        $this->writtenFiles[] = $fileName;
+
+        if ($this->config['outputWebp'] ?? false) {
+            $this->writtenFiles[] = preg_replace('/\.\w+$/', '.webp', $fileName) ?? $fileName;
+        }
     }
 
     protected function processUploadSingle($file): array
@@ -220,43 +305,12 @@ trait WriteDocuman
             throw new DocumanException('The file exceeds the configured maximum upload size.');
         }
 
-        // Validate against actual MIME type (not client-supplied extension)
-        $mimeType = $file->getMimeType();
-        if (!is_string($mimeType) || $mimeType === '') {
-            throw new DocumanException('Unable to determine the uploaded file type.');
-        }
-        $extnGroup = documan_mime_group($mimeType);
-
-        if (!$extnGroup || !array_key_exists($extnGroup, $this->allowedFileExtensions)) {
-            throw new DocumanException("File type '{$mimeType}' is not allowed.");
-        }
-
-        // Derive a safe extension from the MIME type rather than trusting the client
-        $extension = strtolower($file->getClientOriginalExtension());
-        $allowedExtensionsForGroup = $this->allowedFileExtensions[$extnGroup];
-        if (!in_array($extension, $allowedExtensionsForGroup, true)) {
-            // Fall back to a known-safe extension for this MIME type
-            $extension = documan_safe_extension_from_mime($mimeType);
-        }
+        [$extnGroup, $extension] = $this->resolveTypeAndExtension($file);
 
         $fileName = Str::random();
         $this->prepareStoragePath();
         $this->filename = $fileName.'.'.$extension;
-
-        $this->linkPath = '';
-        $this->localPath = '';
-        $fileSysDisk = $this->getFileSystemDisk($this->getDisk());
-        if ($this->returnResultWithLinks) {
-            $this->linkPath = (isset($fileSysDisk['url']))
-                ? $fileSysDisk['url']
-                : null;
-        }
-
-        if ($this->returnResultWithPaths) {
-            $this->localPath = (isset($fileSysDisk['root']))
-                ? $fileSysDisk['root']
-                : null;
-        }
+        $this->setResultRoots();
 
         $this->formFile = $file;
         if ($extnGroup === 'image') {
@@ -264,7 +318,96 @@ trait WriteDocuman
         }
 
         return $this->_processOtherDocs($extnGroup);
+    }
 
+    /**
+     * Decide what the file is from its contents, and the extension to
+     * store it under.
+     *
+     * @return array{0: string, 1: string} [group, extension]
+     */
+    private function resolveTypeAndExtension(UploadedFile $file): array
+    {
+        $mimeType = $file->getMimeType();
+        if (!is_string($mimeType) || $mimeType === '') {
+            throw new DocumanException('Unable to determine the uploaded file type.');
+        }
+
+        $clientExtension = strtolower($file->getClientOriginalExtension());
+        $group = documan_mime_group($mimeType);
+
+        if ($group && array_key_exists($group, $this->allowedFileExtensions)) {
+            //The extension follows the contents, never the name the client
+            //sent: a PNG uploaded as photo.jpg is stored as .png.
+            $candidates = documan_extensions_for_mime($mimeType);
+            if (in_array($clientExtension, $candidates, true)) {
+                array_unshift($candidates, $clientExtension);
+            }
+
+            foreach ($candidates as $candidate) {
+                if (in_array($candidate, $this->allowedFileExtensions[$group], true)) {
+                    return [$group, $candidate];
+                }
+            }
+        }
+
+        //Types added with addExtension() are not ones this package can
+        //recognise by content, so they are matched on the file's extension.
+        $others = $this->allowedFileExtensions['others'] ?? [];
+        if (in_array($clientExtension, $others, true)) {
+            $this->assertNotExecutableExtension($clientExtension);
+
+            return ['others', $clientExtension];
+        }
+
+        throw new DocumanException("File type '{$mimeType}' is not allowed.");
+    }
+
+    /**
+     * Extensions a web server may run are refused even when added by hand.
+     */
+    private function assertNotExecutableExtension(string $extension): void
+    {
+        $executable = ['php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'phps', 'pht', 'cgi', 'pl', 'sh', 'htaccess'];
+
+        if (in_array($extension, $executable, true)) {
+            throw new DocumanException("Files with the '{$extension}' extension cannot be uploaded.");
+        }
+    }
+
+    /**
+     * Where the links and paths in the upload result are rooted.
+     */
+    private function setResultRoots(): void
+    {
+        $this->linkPath = '';
+        $this->localPath = '';
+        $fileSysDisk = $this->getFileSystemDisk($this->getDisk());
+
+        if ($this->returnResultWithLinks) {
+            $this->linkPath = isset($fileSysDisk['url']) ? rtrim((string) $fileSysDisk['url'], '/') : '';
+        }
+
+        if ($this->returnResultWithPaths) {
+            $this->localPath = (string) ($fileSysDisk['root'] ?? '');
+        }
+    }
+
+    /**
+     * The link reported for a stored file: the disk's configured url when
+     * it has one, otherwise whatever its driver gives.
+     */
+    private function linkFor(string $fileName): ?string
+    {
+        if ($this->linkPath !== '') {
+            return $this->linkPath.'/'.$fileName;
+        }
+
+        try {
+            return $this->urlDisk($this->getDisk())->url($fileName);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function _processOtherDocs($extnGroup): array
@@ -275,9 +418,7 @@ trait WriteDocuman
         $this->putFileFromPath($this->formFile->getRealPath(), $this->filename);
 
         if ($this->returnResultWithLinks) {
-            $fileNameInSizes['link'] = ($this->linkPath)
-                ? $this->linkPath.'/'.$this->filename
-                : null;
+            $fileNameInSizes['link'] = $this->linkFor($this->filename);
         }
 
         if ($this->returnResultWithPaths) {
@@ -323,10 +464,6 @@ trait WriteDocuman
         $fileNameInSizes['fileType'] = $extnGroup;
         $fileNameInSizes['base_name'] = $this->filename;
 
-        $queueEnabled = (bool) ($this->config['queue']['enabled'] ?? false);
-        $queueConnection = $this->config['queue']['connection'] ?? null;
-        $queueName = $this->config['queue']['name'] ?? null;
-
         // The original is the base_name itself — no prefix.
         // It is always stored synchronously so queue jobs have a source to read from.
         $baseFileName = $fileName . '.' . $extension;   // == $this->filename at this point
@@ -334,73 +471,23 @@ trait WriteDocuman
         [$localSourcePath, $isTempSourcePath] = $this->resolveLocalImageSourcePath();
 
         try {
-            // Always persist the original immediately (idempotent).
-            $dimensions = @getimagesize($localSourcePath);
-            if ($dimensions === false || $dimensions[0] <= 0 || $dimensions[1] <= 0) {
-                throw new DocumanException('Invalid image file or dimensions.');
-            }
-            $maxPixels = (int) ($this->config['maxImagePixels'] ?? 40000000);
-            if ($maxPixels > 0 && $dimensions[0] > intdiv($maxPixels, $dimensions[1])) {
-                throw new DocumanException('Source image exceeds the configured maximum pixel count.');
-            }
+            $this->assertImageWithinLimits($localSourcePath);
             $this->putFileFromPath($localSourcePath, $baseFileName);
 
             foreach ($this->chosenSizes as $key => $size) {
-                if ($key === 'original') {
-                    // Original is already stored above as the plain base_name.
-                    $this->filename = $baseFileName;
-                } elseif ($queueEnabled) {
-                    $this->filename = $key . '_' . $fileName . '.' . $extension;
+                $this->filename = $key === 'original'
+                    ? $baseFileName
+                    : $key . '_' . $fileName . '.' . $extension;
 
-                    $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
-                        disk: $this->getDisk(),
-                        sourceFileName: $baseFileName,   // plain base_name, no prefix
-                        targetFileName: $this->filename,
-                        width: $size['width'],
-                        height: $size['height'],
-                        visibility: $this->getVisibility(),
-                    );
-
-                    if ($queueConnection) {
-                        $job->onConnection($queueConnection);
-                    }
-
-                    if ($queueName) {
-                        $job->onQueue($queueName);
-                    }
-
-                    dispatch($job);
-                } else {
-                    $this->filename = $key . '_' . $fileName . '.' . $extension;
-
-                    $imageProcessor = new ImageResizer($this->getDisk());
-                    $imageProcessor->setVisibility($this->getVisibility());
-                    $imageProcessor->resizeAndPreserveExif(
-                        $localSourcePath,
-                        $this->filename,
-                        $size['width'],
-                        $size['height']
-                    );
+                if ($key !== 'original') {
+                    $this->createVariant($localSourcePath, $baseFileName, $this->filename, $size);
                 }
 
-                $fileNameInSizes['variations'][$key] = $this->filename;
-
-                if ($this->returnResultWithLinks) {
-                    $fileNameInSizes['links'][$key] = ($this->linkPath)
-                        ? $this->linkPath . '/' . $this->filename
-                        : null;
-                }
-
-                if ($this->returnResultWithPaths) {
-                    $fileNameInSizes['paths'][$key] = ($this->localPath)
-                        ? $this->localPath . '/' . $this->filename
-                        : null;
-                }
+                $fileNameInSizes = $this->addToResult($fileNameInSizes, (string) $key, $this->filename);
             }
         } finally {
             // Only clean up temp files that we materialized from a remote
-            // disk. Locally-uploaded files (UploadedFile tmp paths, or
-            // caller-provided local paths) are left untouched — their
+            // disk. Locally-uploaded files are left untouched — their
             // lifecycle is not owned by us.
             if ($isTempSourcePath) {
                 @unlink($localSourcePath);
@@ -408,6 +495,77 @@ trait WriteDocuman
         }
 
         return $fileNameInSizes;
+    }
+
+    /**
+     * Record one stored size in the upload result.
+     */
+    private function addToResult(array $result, string $size, string $fileName): array
+    {
+        $result['variations'][$size] = $fileName;
+
+        if ($this->returnResultWithLinks) {
+            $result['links'][$size] = $this->linkFor($fileName);
+        }
+
+        if ($this->returnResultWithPaths) {
+            $result['paths'][$size] = $this->localPath ? $this->localPath . '/' . $fileName : null;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Refuse a file that is not an image, or one too large to decode safely.
+     */
+    private function assertImageWithinLimits(string $path): void
+    {
+        $dimensions = @getimagesize($path);
+        if ($dimensions === false || $dimensions[0] <= 0 || $dimensions[1] <= 0) {
+            throw new DocumanException('Invalid image file or dimensions.');
+        }
+
+        $maxPixels = (int) ($this->config['maxImagePixels'] ?? 40000000);
+        if ($maxPixels > 0 && $dimensions[0] > intdiv($maxPixels, $dimensions[1])) {
+            throw new DocumanException('Source image exceeds the configured maximum pixel count.');
+        }
+    }
+
+    /**
+     * Make one size now, or hand it to the queue when that is switched on.
+     *
+     * @param array{width: int, height: int} $size
+     */
+    private function createVariant(string $localSourcePath, string $baseFileName, string $target, array $size): void
+    {
+        if (!($this->config['queue']['enabled'] ?? false)) {
+            $this->rememberVariant($target);
+
+            (new ImageResizer($this->getDisk()))
+                ->setVisibility($this->getVisibility())
+                ->resizeAndPreserveExif($localSourcePath, $target, $size['width'], $size['height']);
+
+            return;
+        }
+
+        $job = new \Tekkenking\Documan\Jobs\ProcessDocumanImage(
+            disk: $this->getDisk(),
+            sourceFileName: $baseFileName,   // plain base_name, no prefix
+            targetFileName: $target,
+            width: $size['width'],
+            height: $size['height'],
+            visibility: $this->getVisibility(),
+        );
+
+        if ($this->config['queue']['connection'] ?? null) {
+            $job->onConnection($this->config['queue']['connection']);
+        }
+
+        if ($this->config['queue']['name'] ?? null) {
+            $job->onQueue($this->config['queue']['name']);
+        }
+
+        dispatch($job);
     }
 
     /**
@@ -436,55 +594,9 @@ trait WriteDocuman
             return [$this->formFile, false];
         }
 
-        // Not a local file — if we have a disk configured and the value
-        // looks like a valid object key/path, try to fetch it from the
-        // configured (potentially remote) disk.
-        if (is_string($this->formFile) && $this->formFile !== '' && $this->getDisk()) {
-            $disk = $this->getDisk();
-
-            try {
-                $stream = Storage::disk($disk)->readStream($this->formFile);
-            } catch (\Throwable $e) {
-                $stream = null;
-            }
-
-            if (is_resource($stream)) {
-                $tmpPath = tempnam(sys_get_temp_dir(), 'documan_');
-
-                if ($tmpPath === false) {
-                    fclose($stream);
-                    throw new RuntimeException(
-                        "Unable to create a secure local temp file for image resizing (disk: {$disk})."
-                    );
-                }
-
-                $tmpHandle = fopen($tmpPath, 'wb');
-
-                if ($tmpHandle === false) {
-                    fclose($stream);
-                    @unlink($tmpPath);
-                    throw new RuntimeException(
-                        "Unable to write remote image contents to a local temp file (disk: {$disk})."
-                    );
-                }
-
-                try {
-                    $bytesCopied = stream_copy_to_stream($stream, $tmpHandle);
-                } finally {
-                    fclose($tmpHandle);
-                    fclose($stream);
-                }
-
-                if ($bytesCopied === false || $bytesCopied === 0) {
-                    @unlink($tmpPath);
-
-                    throw new RuntimeException(
-                        "Failed to copy remote image contents to a local temp file for resizing (disk: {$disk})."
-                    );
-                }
-
-                return [$tmpPath, true];
-            }
+        $fetched = is_string($this->formFile) ? $this->fetchStoredImage($this->formFile) : null;
+        if ($fetched !== null) {
+            return [$fetched, true];
         }
 
         $sourceType = is_object($this->formFile) ? get_class($this->formFile) : gettype($this->formFile);
@@ -493,6 +605,37 @@ trait WriteDocuman
             'Unable to resolve a local image source path for resizing '
             . "(disk: " . ($this->getDisk() ?? 'none') . ", source type: {$sourceType})."
         );
+    }
+
+    /**
+     * Copy an image already on the configured (possibly remote) disk to a
+     * local temporary file, or null when there is no such file.
+     */
+    private function fetchStoredImage(string $name): ?string
+    {
+        if ($name === '' || !$this->getDisk()) {
+            return null;
+        }
+
+        try {
+            $stream = Storage::disk($this->getDisk())->readStream($name);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if (!is_resource($stream)) {
+            return null;
+        }
+
+        [$tmpPath, $bytesCopied] = $this->copyStreamToTempFile($stream, 'documan_');
+
+        if ($bytesCopied === 0) {
+            @unlink($tmpPath);
+
+            throw new RuntimeException('The stored image is empty (disk: '.$this->getDisk().').');
+        }
+
+        return $tmpPath;
     }
 
     protected function processUploadMultiple(array $files): array
@@ -515,6 +658,8 @@ trait WriteDocuman
         if ($stream === false) {
             throw new RuntimeException('Unable to open the source file.');
         }
+
+        $this->writtenFiles[] = $targetFileName;
 
         try {
             Storage::disk($this->getDisk())->put(
