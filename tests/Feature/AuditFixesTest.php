@@ -282,3 +282,21 @@ it('turns a phone photo upright with gd', function () {
 
     expect([$width, $height])->toBe([200, 400]);
 })->skip(fn () => !extension_loaded('gd') || !function_exists('exif_read_data'), 'needs ext-gd and ext-exif');
+
+// ── Through a model ─────────────────────────────────────────────────────
+
+it('gives sizes from a model attribute as a property and as a method', function () {
+    $name = documan('photos')->medium()->small()->upload_without_request(auditImage())['base_name'];
+
+    $user = new class extends \Illuminate\Database\Eloquent\Model {
+        protected $guarded = [];
+        protected $casts = ['avatar' => DocumanCast::class.':photos:small|medium'];
+    };
+    $user->setRawAttributes(['avatar' => $name]);
+
+    expect($user->avatar->medium)->toBe("http://localhost/photos/medium_{$name}")
+        ->and($user->avatar->small)->toBe("http://localhost/photos/small_{$name}")
+        ->and((string) $user->avatar->medium())->toBe("http://localhost/photos/medium_{$name}")
+        ->and($user->avatar->original)->toBe("http://localhost/photos/{$name}")
+        ->and($user->toArray()['avatar'])->toBe($name);
+});

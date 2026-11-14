@@ -5,6 +5,19 @@ All notable changes to `tekkenking/documan` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-11-14
+
+First stable release. The code is 0.9.0's; this release sets the supported versions.
+
+### Changed
+
+- **Laravel 10 and 11 are no longer supported.** Both are out of security support. Applications on them stay on 0.9.0, which Composer selects for them automatically.
+- The minimum PHP version is 8.2, which Laravel 12 requires.
+
+### Added
+
+- A test that a model's cast attribute gives a size as a property, `$user->avatar->medium`, and as a method.
+
 ## [0.9.0] - 2026-11-14
 
 An audit of 0.8.2 found that the documented usage did not work. Every item below was reproduced first and is now covered by a test.
