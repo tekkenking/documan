@@ -67,8 +67,8 @@ echo $user->avatar->medium();
 
 ## Requirements
 
-- PHP ^8.1
-- Laravel ^10.0 | ^11.0 | ^12.0 | ^13.0. The test suite runs on Laravel 12 and 13; versions 10 and 11 are out of security support and are no longer tested.
+- PHP ^8.2
+- Laravel 12.x or 13.x
 - `ext-fileinfo`, and for image variants either `ext-imagick` (preferred) or `ext-gd`. With GD, `ext-exif` is needed to turn phone photos the right way up.
 
 ## Installation
